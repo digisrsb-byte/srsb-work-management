@@ -1,0 +1,21 @@
+# Final Feature Set
+
+- Modern responsive React interface
+- Electron Windows desktop application
+- Express REST API suitable for future Android/React Native client
+- MySQL database
+- JWT authentication
+- Server-enforced RBAC
+- Super Admin, Admin, HR, Manager, Recruiter and Employee roles
+- Hybrid password recovery
+- Admin/Super Admin OTP recovery through SMTP
+- Employee password-reset requests handled by Admin/Super Admin
+- Secure bcrypt password hashes
+- Employee and account management
+- Attendance and leave
+- Clients, requirements, candidates and recruitment workflow
+- Tasks and work progress
+- Operational dashboards and charts
+- Reports and exports
+- Notifications and audit-friendly reset records
+- Finance hidden/disabled for this release

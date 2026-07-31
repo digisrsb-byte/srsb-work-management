@@ -1,0 +1,2 @@
+-- Initial schema is stored in ../schema.sql.
+-- Future database updates should use 002_, 003_, 004_... migration files.

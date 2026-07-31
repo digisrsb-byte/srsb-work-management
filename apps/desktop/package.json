@@ -1,0 +1,16 @@
+{
+  "name": "srsb-hrms-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {"dev": "cross-env ELECTRON_START_URL=http://localhost:5173 electron .", "build": "electron-builder --win nsis"},
+  "devDependencies": {"cross-env": "7.0.3", "electron": "36.4.0", "electron-builder": "26.0.12"},
+  "build": {
+    "appId": "com.srsb.hrms",
+    "productName": "SRSB HRMS",
+    "directories": {"output": "../../release"},
+    "files": ["main.cjs", "preload.cjs", "../../apps/frontend/dist/**/*"],
+    "win": {"target": "nsis", "artifactName": "SRSB-HRMS-Setup-${version}.${ext}"},
+    "nsis": {"oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "createStartMenuShortcut": true}
+  }
+}

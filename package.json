@@ -1,0 +1,26 @@
+{
+  "name": "srsb-hrms-desktop-suite",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/frontend",
+    "apps/backend",
+    "apps/desktop"
+  ],
+  "scripts": {
+    "dev:backend": "npm --workspace apps/backend run dev",
+    "dev:frontend": "npm --workspace apps/frontend run dev",
+    "dev:desktop": "npm --workspace apps/desktop run dev",
+    "build:frontend": "npm --workspace apps/frontend run build",
+    "build:desktop": "npm run build:frontend && npm --workspace apps/desktop run build",
+    "start:all": "scripts\\start-development.bat"
+  },
+  "allowScripts": {
+    "electron@36.4.0": true,
+    "electron-winstaller@5.4.0": true,
+    "esbuild@0.24.2": true
+  },
+  "dependencies": {
+    "node-cron": "^4.6.0"
+  }
+}
