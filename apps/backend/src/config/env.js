@@ -54,6 +54,14 @@ export const env = {
     'SRSB Workforce Solutions',
   smtpFromEmail:
     process.env.SMTP_FROM_EMAIL || '',
+  resendApiKey:
+    process.env.RESEND_API_KEY || '',
+  resendFromEmail:
+    process.env.RESEND_FROM_EMAIL || '',
+  resendFromName:
+    process.env.RESEND_FROM_NAME ||
+    'SRSB Workforce Solutions',
+
   otpExpiryMinutes: Number(
     process.env.OTP_EXPIRY_MINUTES || 10
   )
