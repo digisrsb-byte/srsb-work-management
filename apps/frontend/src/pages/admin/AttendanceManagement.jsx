@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Clock3,
   Search,
@@ -9,6 +9,7 @@ import {
   UserX
 } from 'lucide-react';
 import api from '../../services/api.js';
+import useDebouncedValue from '../../hooks/useDebouncedValue.js';
 
 function formatTime(value) {
   if (!value) return '—';
@@ -47,10 +48,17 @@ export default function AttendanceManagement() {
   const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
 
-  async function loadAttendance() {
+  const debouncedSearch = useDebouncedValue(search, 300);
+
+  const loadAttendance = useCallback(async ({ silent = false } = {}) => {
     try {
+      if (!silent) {
+        setLoading(true);
+      }
+
       setError('');
 
       const params = {};
@@ -63,9 +71,11 @@ export default function AttendanceManagement() {
         params.status = status;
       }
 
-      const response = await api.get('/attendance', {
-        params
-      });
+      if (debouncedSearch.trim()) {
+        params.search = debouncedSearch.trim();
+      }
+
+      const response = await api.get('/attendance', { params });
 
       setRecords(response.data.data || []);
     } catch (requestError) {
@@ -74,22 +84,23 @@ export default function AttendanceManagement() {
           'Unable to load attendance records.'
       );
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
-  }
+  }, [date, status, debouncedSearch]);
 
   useEffect(() => {
-    setLoading(true);
     loadAttendance();
-  }, [date, status]);
+  }, [loadAttendance]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
-      loadAttendance();
-    }, 5000);
+      loadAttendance({ silent: true });
+    }, 15000);
 
     const handleFocus = () => {
-      loadAttendance();
+      loadAttendance({ silent: true });
     };
 
     window.addEventListener('focus', handleFocus);
@@ -98,28 +109,9 @@ export default function AttendanceManagement() {
       window.clearInterval(interval);
       window.removeEventListener('focus', handleFocus);
     };
-  }, [date, status]);
+  }, [loadAttendance]);
 
-  const filteredRecords = useMemo(() => {
-    const query = search.trim().toLowerCase();
-
-    if (!query) {
-      return records;
-    }
-
-    return records.filter((record) => {
-      return [
-        record.employee_name,
-        record.employee_code,
-        record.designation,
-        record.status
-      ]
-        .filter(Boolean)
-        .some((value) =>
-          String(value).toLowerCase().includes(query)
-        );
-    });
-  }, [records, search]);
+  const filteredRecords = records;
 
   const summary = useMemo(() => {
     return {
@@ -152,10 +144,18 @@ export default function AttendanceManagement() {
         <button
           type="button"
           className="btn btn-secondary"
-          onClick={loadAttendance}
+          onClick={async () => {
+            setRefreshing(true);
+            await loadAttendance({ silent: true });
+            setRefreshing(false);
+          }}
+          disabled={loading || refreshing}
         >
-          <RefreshCw size={17} />
-          Refresh
+          <RefreshCw
+            size={17}
+            className={refreshing ? 'refresh-spin' : ''}
+          />
+          {refreshing ? 'Refreshing...' : 'Refresh'}
         </button>
       </div>
 
@@ -250,10 +250,12 @@ export default function AttendanceManagement() {
               <input
                 type="text"
                 value={search}
-                onChange={(event) =>
-                  setSearch(event.target.value)
+                onInput={(event) =>
+                  setSearch(event.currentTarget.value)
                 }
                 placeholder="Name, ID or designation"
+                autoComplete="off"
+                aria-label="Search attendance employees"
               />
             </div>
           </label>
@@ -349,6 +351,14 @@ export default function AttendanceManagement() {
       <style>{`
         .attendance-page {
           padding: 28px;
+        }
+
+        .refresh-spin {
+          animation: attendance-spin 0.8s linear infinite;
+        }
+
+        @keyframes attendance-spin {
+          to { transform: rotate(360deg); }
         }
 
         .attendance-summary-grid {

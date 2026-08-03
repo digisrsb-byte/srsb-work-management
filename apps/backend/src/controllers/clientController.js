@@ -20,6 +20,45 @@ function validateClientId(value) {
 }
 
 export const listClients = asyncHandler(async (req, res) => {
+  const {
+    search,
+    status
+  } = req.query;
+
+  const conditions = [];
+  const values = [];
+
+  if (status && status !== 'ALL') {
+    if (!allowedStatuses.includes(status)) {
+      throw new AppError('Invalid client status.', 400);
+    }
+
+    conditions.push('c.status = ?');
+    values.push(status);
+  }
+
+  const keyword = String(search || '').trim();
+
+  if (keyword) {
+    conditions.push(
+      `LOWER(CONCAT_WS(
+         ' ',
+         c.company_name,
+         c.industry,
+         c.website,
+         c.contact_name,
+         c.contact_email,
+         c.contact_phone,
+         c.status
+       )) LIKE ?`
+    );
+    values.push(`%${keyword.toLowerCase()}%`);
+  }
+
+  const whereClause = conditions.length
+    ? `WHERE ${conditions.join(' AND ')}`
+    : '';
+
   const [rows] = await pool.query(
     `SELECT
        c.id,
@@ -73,7 +112,10 @@ export const listClients = asyncHandler(async (req, res) => {
      FROM clients c
      LEFT JOIN employees e
        ON e.id = c.onboarded_by
-     ORDER BY c.created_at DESC`
+     ${whereClause}
+     ORDER BY c.created_at DESC
+     LIMIT 1000`,
+    values
   );
 
   const data = rows.map((row) => ({
@@ -92,7 +134,12 @@ export const listClients = asyncHandler(async (req, res) => {
 
   res.json({
     success: true,
-    data
+    data,
+    meta: {
+      count: data.length,
+      search: keyword || null,
+      status: status || 'ALL'
+    }
   });
 });
 

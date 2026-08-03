@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 
 import api from '../../services/api.js';
+import useDebouncedValue from '../../hooks/useDebouncedValue.js';
 
 const initialClientForm = {
   companyName: '',
@@ -138,6 +139,7 @@ export default function Clients() {
 
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const hasLoadedRef = useRef(false);
 
   function showSuccess(text) {
     setError('');
@@ -149,30 +151,48 @@ export default function Clients() {
     setError(text);
   }
 
-  async function loadData() {
+  const debouncedSearch = useDebouncedValue(search, 300);
+
+  const loadData = useCallback(async () => {
     try {
-      setLoading(true);
+      if (!hasLoadedRef.current) {
+        setLoading(true);
+      }
       setError('');
 
+      const params = {};
+
+      if (debouncedSearch.trim()) {
+        params.search = debouncedSearch.trim();
+      }
+
+      if (statusFilter) {
+        params.status = statusFilter;
+      }
+
       const [
-        clientsResponse,
-        employeesResponse
-      ] = await Promise.all([
-        api.get('/clients'),
-        api.get('/employees')
+        clientsResult,
+        employeesResult
+      ] = await Promise.allSettled([
+        api.get('/clients', { params }),
+        api.get('/employees', {
+          params: { status: 'ACTIVE' }
+        })
       ]);
 
-      setClients(
-        clientsResponse.data.data || []
-      );
+      if (clientsResult.status === 'fulfilled') {
+        setClients(
+          clientsResult.value.data.data || []
+        );
+      } else {
+        throw clientsResult.reason;
+      }
 
-      setEmployees(
-        (employeesResponse.data.data || []).filter(
-          (employee) =>
-            employee.status === 'ACTIVE' ||
-            !employee.status
-        )
-      );
+      if (employeesResult.status === 'fulfilled') {
+        setEmployees(
+          employeesResult.value.data.data || []
+        );
+      }
     } catch (err) {
       showError(
         err.response?.data?.message ||
@@ -180,41 +200,15 @@ export default function Clients() {
       );
     } finally {
       setLoading(false);
+      hasLoadedRef.current = true;
     }
-  }
+  }, [debouncedSearch, statusFilter]);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
-  const filteredClients = useMemo(() => {
-    const keyword = search
-      .trim()
-      .toLowerCase();
-
-    return clients.filter((client) => {
-      const matchesSearch =
-        !keyword ||
-        [
-          client.company_name,
-          client.industry,
-          client.contact_name,
-          client.contact_email,
-          client.contact_phone,
-          client.onboarded_by_name
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase()
-          .includes(keyword);
-
-      const matchesStatus =
-        !statusFilter ||
-        client.status === statusFilter;
-
-      return matchesSearch && matchesStatus;
-    });
-  }, [clients, search, statusFilter]);
+  const filteredClients = clients;
 
   function resetClientForm() {
     setClientForm(initialClientForm);
@@ -1446,9 +1440,11 @@ export default function Clients() {
             className="clients-search"
             placeholder="Search company, contact or industry..."
             value={search}
-            onChange={(event) =>
-              setSearch(event.target.value)
+            onInput={(event) =>
+              setSearch(event.currentTarget.value)
             }
+            autoComplete="off"
+            aria-label="Search clients"
           />
         </div>
 

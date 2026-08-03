@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BriefcaseBusiness,
   Building2,
@@ -6,9 +6,11 @@ import {
   MapPin,
   Plus,
   Search,
+  RefreshCw,
   UserRound
 } from 'lucide-react';
 import api from '../../services/api.js';
+import useDebouncedValue from '../../hooks/useDebouncedValue.js';
 
 const initialForm = {
   clientId: '',
@@ -70,10 +72,12 @@ export default function Openings() {
     useState('');
 
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [creating, setCreating] = useState(false);
 
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const hasLoadedRef = useRef(false);
 
   const showMessage = (text) => {
     setError('');
@@ -85,44 +89,87 @@ export default function Openings() {
     setError(text);
   };
 
-  const loadData = async () => {
+  const debouncedSearch = useDebouncedValue(search, 300);
+
+  const loadData = useCallback(async ({ silent = false } = {}) => {
     try {
-      setLoading(true);
+      if (!silent && !hasLoadedRef.current) {
+        setLoading(true);
+      }
+
       setError('');
 
+      const openingParams = {};
+
+      if (debouncedSearch.trim()) {
+        openingParams.search = debouncedSearch.trim();
+      }
+
+      if (selectedClientId) {
+        openingParams.clientId = selectedClientId;
+      }
+
       const [
-        openingsResponse,
-        clientsResponse,
-        employeesResponse
-      ] = await Promise.all([
-        api.get('/openings'),
+        openingsResult,
+        clientsResult,
+        employeesResult
+      ] = await Promise.allSettled([
+        api.get('/openings', { params: openingParams }),
         api.get('/clients'),
-        api.get('/employees')
+        api.get('/employees', {
+          params: { status: 'ACTIVE' }
+        })
       ]);
 
-      setOpenings(openingsResponse.data.data || []);
-      setClients(clientsResponse.data.data || []);
+      if (openingsResult.status === 'fulfilled') {
+        setOpenings(openingsResult.value.data.data || []);
+      }
 
-      setEmployees(
-        (employeesResponse.data.data || []).filter(
-          (employee) =>
-            employee.status === 'ACTIVE' ||
-            !employee.status
-        )
-      );
+      if (clientsResult.status === 'fulfilled') {
+        setClients(clientsResult.value.data.data || []);
+      }
+
+      if (employeesResult.status === 'fulfilled') {
+        setEmployees(
+          employeesResult.value.data.data || []
+        );
+      }
+
+      const failedResults = [
+        openingsResult,
+        clientsResult,
+        employeesResult
+      ].filter((result) => result.status === 'rejected');
+
+      if (failedResults.length === 3) {
+        throw failedResults[0].reason;
+      }
+
+      if (clientsResult.status === 'rejected') {
+        setError(
+          'Client list could not be loaded. Refresh before adding a requirement.'
+        );
+      } else if (failedResults.length) {
+        setError(
+          'Some information could not be refreshed, but available lists remain usable.'
+        );
+      }
     } catch (err) {
       showError(
         err.response?.data?.message ||
           'Unable to load requirements.'
       );
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
+      hasLoadedRef.current = true;
     }
-  };
+  }, [debouncedSearch, selectedClientId]);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   const handleChange = (event) => {
     const { name, value } = event.target;
@@ -262,9 +309,24 @@ export default function Openings() {
             margin-bottom: 24px;
           }
 
+          .opening-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+          }
+
           .opening-search-wrap {
             position: relative;
             width: min(360px, 100%);
+          }
+
+          .opening-refresh-spin {
+            animation: opening-spin 0.8s linear infinite;
+          }
+
+          @keyframes opening-spin {
+            to { transform: rotate(360deg); }
           }
 
           .opening-search-wrap svg {
@@ -520,18 +582,39 @@ export default function Openings() {
           </p>
         </div>
 
-        <div className="opening-search-wrap">
-          <Search size={18} />
+        <div className="opening-header-actions">
+          <div className="opening-search-wrap">
+            <Search size={18} />
 
-          <input
-            type="search"
-            className="opening-search"
-            placeholder="Search company, role or employee..."
-            value={search}
-            onChange={(event) =>
-              setSearch(event.target.value)
-            }
-          />
+            <input
+              type="search"
+              className="opening-search"
+              placeholder="Search company, role or employee..."
+              value={search}
+              onInput={(event) =>
+                setSearch(event.currentTarget.value)
+              }
+              autoComplete="off"
+              aria-label="Search requirements"
+            />
+          </div>
+
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={async () => {
+              setRefreshing(true);
+              await loadData({ silent: true });
+              setRefreshing(false);
+            }}
+            disabled={loading || refreshing}
+          >
+            <RefreshCw
+              size={17}
+              className={refreshing ? 'opening-refresh-spin' : ''}
+            />
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
         </div>
       </div>
 
@@ -690,10 +773,14 @@ export default function Openings() {
               name="clientId"
               value={form.clientId}
               onChange={handleChange}
+              onInput={handleChange}
+              disabled={!clients.length}
               required
             >
               <option value="">
-                Select client
+                {clients.length
+                  ? 'Select client'
+                  : 'No clients available — add a client first'}
               </option>
 
               {clients.map((client) => (

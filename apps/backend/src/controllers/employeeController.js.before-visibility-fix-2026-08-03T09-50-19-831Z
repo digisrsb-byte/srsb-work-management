@@ -4,82 +4,9 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
 
 export const listEmployees = asyncHandler(async (req, res) => {
-  const {
-    search,
-    status,
-    role
-  } = req.query;
-
-  const conditions = [];
-  const values = [];
-
-  if (req.user.role === 'SUPER_ADMIN') {
-    conditions.push(
-      "COALESCE(e.account_type, 'EMPLOYEE') = 'EMPLOYEE'"
-    );
-  } else if (req.user.role === 'ADMIN') {
-    conditions.push(
-      "COALESCE(e.account_type, 'EMPLOYEE') = 'EMPLOYEE'"
-    );
-    conditions.push("e.role <> 'SUPER_ADMIN'");
-  } else {
-    conditions.push(
-      "COALESCE(e.account_type, 'EMPLOYEE') = 'EMPLOYEE'"
-    );
-    conditions.push(
-      "e.role NOT IN ('SUPER_ADMIN','ADMIN')"
-    );
-  }
-
-  if (status) {
-    if (!['ACTIVE', 'INACTIVE'].includes(status)) {
-      throw new AppError('Invalid employee status.', 400);
-    }
-
-    conditions.push('e.status = ?');
-    values.push(status);
-  }
-
-  if (role) {
-    const allowedRoles = [
-      'ADMIN',
-      'HR',
-      'MANAGER',
-      'RECRUITER',
-      'EMPLOYEE'
-    ];
-
-    if (!allowedRoles.includes(role)) {
-      throw new AppError('Invalid employee role.', 400);
-    }
-
-    conditions.push('e.role = ?');
-    values.push(role);
-  }
-
-  const keyword = String(search || '').trim();
-
-  if (keyword) {
-    conditions.push(
-      `LOWER(CONCAT_WS(
-         ' ',
-         e.employee_id,
-         e.username,
-         e.full_name,
-         e.email,
-         e.phone,
-         e.role,
-         e.designation,
-         d.name,
-         e.status
-       )) LIKE ?`
-    );
-    values.push(`%${keyword.toLowerCase()}%`);
-  }
-
-  const whereClause = conditions.length
-    ? `WHERE ${conditions.join(' AND ')}`
-    : '';
+  const visibilityClause = req.user.role === 'SUPER_ADMIN'
+    ? ''
+    : "WHERE e.role NOT IN ('SUPER_ADMIN','ADMIN')";
 
   const [rows] = await pool.query(
     `SELECT
@@ -92,7 +19,6 @@ export const listEmployees = asyncHandler(async (req, res) => {
        e.phone,
        e.date_of_birth,
        e.role,
-       e.account_type,
        e.designation,
        e.status,
        e.joining_date,
@@ -103,21 +29,13 @@ export const listEmployees = asyncHandler(async (req, res) => {
      FROM employees e
      LEFT JOIN departments d
        ON d.id = e.department_id
-     ${whereClause}
-     ORDER BY e.created_at DESC
-     LIMIT 1000`,
-    values
+     ${visibilityClause}
+     ORDER BY e.created_at DESC`
   );
 
   res.json({
     success: true,
-    data: rows,
-    meta: {
-      count: rows.length,
-      search: keyword || null,
-      status: status || null,
-      role: role || null
-    }
+    data: rows
   });
 });
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Plus,
   Search,
@@ -8,6 +8,7 @@ import {
   UserCheck
 } from 'lucide-react';
 import api from '../../services/api.js';
+import useDebouncedValue from '../../hooks/useDebouncedValue.js';
 
 const emptyForm = {
   fullName: '',
@@ -47,18 +48,37 @@ export default function Candidates() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  async function loadData() {
+  const debouncedSearch = useDebouncedValue(search, 300);
+
+  const loadData = useCallback(async () => {
     setLoading(true);
     setError('');
 
     try {
-      const [candidateResponse, openingResponse] = await Promise.all([
-        api.get('/candidates'),
+      const candidateParams = {};
+
+      if (debouncedSearch.trim()) {
+        candidateParams.search = debouncedSearch.trim();
+      }
+
+      if (stageFilter !== 'ALL') {
+        candidateParams.stage = stageFilter;
+      }
+
+      const [candidateResult, openingResult] = await Promise.allSettled([
+        api.get('/candidates', { params: candidateParams }),
         api.get('/openings')
       ]);
 
-      setCandidates(candidateResponse.data.data || []);
-      setOpenings(openingResponse.data.data || []);
+      if (candidateResult.status === 'fulfilled') {
+        setCandidates(candidateResult.value.data.data || []);
+      } else {
+        throw candidateResult.reason;
+      }
+
+      if (openingResult.status === 'fulfilled') {
+        setOpenings(openingResult.value.data.data || []);
+      }
     } catch (err) {
       setError(
         err.response?.data?.message ||
@@ -67,11 +87,11 @@ export default function Candidates() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [debouncedSearch, stageFilter]);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   async function submitCandidate(event) {
     event.preventDefault();
@@ -136,26 +156,7 @@ export default function Candidates() {
     [openings]
   );
 
-  const filteredCandidates = useMemo(() => {
-    const text = search.trim().toLowerCase();
-
-    return candidates.filter((candidate) => {
-      const matchesSearch =
-        !text ||
-        candidate.full_name?.toLowerCase().includes(text) ||
-        candidate.email?.toLowerCase().includes(text) ||
-        candidate.phone?.toLowerCase().includes(text) ||
-        candidate.company_name?.toLowerCase().includes(text) ||
-        candidate.job_role?.toLowerCase().includes(text) ||
-        candidate.added_by_name?.toLowerCase().includes(text);
-
-      const matchesStage =
-        stageFilter === 'ALL' ||
-        candidate.stage === stageFilter;
-
-      return matchesSearch && matchesStage;
-    });
-  }, [candidates, search, stageFilter]);
+  const filteredCandidates = candidates;
 
   const summary = useMemo(() => {
     const uniqueCandidateIds = new Set(
@@ -547,7 +548,11 @@ export default function Candidates() {
             className="input"
             placeholder="Search candidate, company, position or employee"
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onInput={(event) =>
+              setSearch(event.currentTarget.value)
+            }
+            autoComplete="off"
+            aria-label="Search candidates"
             style={{ paddingLeft: 38 }}
           />
         </div>

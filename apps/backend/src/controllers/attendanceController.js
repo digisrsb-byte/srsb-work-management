@@ -2,8 +2,48 @@ import { pool } from '../config/database.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
 
+const allowedStatuses = [
+  'PRESENT',
+  'ABSENT',
+  'HALF_DAY',
+  'LEAVE'
+];
+
+function ensureEmployeeAccount(req) {
+  if (req.user.accountType === 'SYSTEM') {
+    throw new AppError(
+      'Head Admin system accounts do not use employee attendance.',
+      403
+    );
+  }
+}
+
 export const punchIn = asyncHandler(async (req, res) => {
+  ensureEmployeeAccount(req);
+
   const employeeId = req.user.id;
+
+  const [[employee]] = await pool.query(
+    `SELECT id, status, account_type
+     FROM employees
+     WHERE id = ?
+     LIMIT 1`,
+    [employeeId]
+  );
+
+  if (!employee || employee.status !== 'ACTIVE') {
+    throw new AppError(
+      'Your employee account is not active.',
+      403
+    );
+  }
+
+  if (employee.account_type === 'SYSTEM') {
+    throw new AppError(
+      'Head Admin system accounts do not use employee attendance.',
+      403
+    );
+  }
 
   const [existing] = await pool.query(
     `SELECT id, punch_in
@@ -46,13 +86,31 @@ export const punchIn = asyncHandler(async (req, res) => {
     );
   }
 
+  const [[record]] = await pool.query(
+    `SELECT
+       id,
+       attendance_date,
+       punch_in,
+       punch_out,
+       total_work_minutes,
+       status
+     FROM attendance
+     WHERE employee_id = ?
+       AND attendance_date = CURDATE()
+     LIMIT 1`,
+    [employeeId]
+  );
+
   res.json({
     success: true,
-    message: 'Punch-in recorded.'
+    message: 'Punch-in recorded.',
+    data: record
   });
 });
 
 export const punchOut = asyncHandler(async (req, res) => {
+  ensureEmployeeAccount(req);
+
   const employeeId = req.user.id;
 
   const [rows] = await pool.query(
@@ -110,14 +168,30 @@ export const punchOut = asyncHandler(async (req, res) => {
     [attendance.id]
   );
 
+  const [[record]] = await pool.query(
+    `SELECT
+       id,
+       attendance_date,
+       punch_in,
+       punch_out,
+       total_work_minutes,
+       status
+     FROM attendance
+     WHERE id = ?`,
+    [attendance.id]
+  );
+
   res.json({
     success: true,
-    message: 'Punch-out recorded.'
+    message: 'Punch-out recorded.',
+    data: record
   });
 });
 
 export const myAttendance = asyncHandler(
   async (req, res) => {
+    ensureEmployeeAccount(req);
+
     const [rows] = await pool.query(
       `SELECT
          attendance_date,
@@ -152,9 +226,16 @@ export const myAttendance = asyncHandler(
 
 export const listEmployeeAttendance = asyncHandler(
   async (req, res) => {
-    const { date, employeeId, status } = req.query;
+    const {
+      date,
+      employeeId,
+      status,
+      search
+    } = req.query;
 
-    const conditions = [];
+    const conditions = [
+      "COALESCE(e.account_type, 'EMPLOYEE') = 'EMPLOYEE'"
+    ];
     const values = [];
 
     if (date) {
@@ -163,26 +244,46 @@ export const listEmployeeAttendance = asyncHandler(
     }
 
     if (employeeId) {
+      const parsedEmployeeId = Number(employeeId);
+
+      if (
+        !Number.isInteger(parsedEmployeeId) ||
+        parsedEmployeeId <= 0
+      ) {
+        throw new AppError('Invalid employee filter.', 400);
+      }
+
       conditions.push('a.employee_id = ?');
-      values.push(employeeId);
+      values.push(parsedEmployeeId);
     }
 
-    if (
-      status &&
-      [
-        'PRESENT',
-        'ABSENT',
-        'HALF_DAY',
-        'LEAVE'
-      ].includes(status)
-    ) {
+    if (status) {
+      if (!allowedStatuses.includes(status)) {
+        throw new AppError('Invalid attendance status.', 400);
+      }
+
       conditions.push('a.status = ?');
       values.push(status);
     }
 
-    const whereClause = conditions.length
-      ? `WHERE ${conditions.join(' AND ')}`
-      : '';
+    const keyword = String(search || '').trim();
+
+    if (keyword) {
+      conditions.push(
+        `LOWER(CONCAT_WS(
+           ' ',
+           e.full_name,
+           e.employee_id,
+           e.username,
+           e.designation,
+           d.name,
+           a.status
+         )) LIKE ?`
+      );
+      values.push(`%${keyword.toLowerCase()}%`);
+    }
+
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
     const [rows] = await pool.query(
       `SELECT
@@ -191,6 +292,7 @@ export const listEmployeeAttendance = asyncHandler(
          e.employee_id AS employee_code,
          e.full_name AS employee_name,
          e.designation,
+         d.name AS department,
          a.attendance_date,
          a.punch_in,
          a.punch_out,
@@ -213,16 +315,28 @@ export const listEmployeeAttendance = asyncHandler(
        FROM attendance a
        JOIN employees e
          ON e.id = a.employee_id
+       LEFT JOIN departments d
+         ON d.id = e.department_id
        ${whereClause}
        ORDER BY
          a.attendance_date DESC,
-         a.punch_in DESC`,
+         a.punch_in DESC
+       LIMIT 1000`,
       values
     );
 
     res.json({
       success: true,
-      data: rows
+      data: rows,
+      meta: {
+        count: rows.length,
+        filters: {
+          date: date || null,
+          employeeId: employeeId || null,
+          status: status || null,
+          search: keyword || null
+        }
+      }
     });
   }
 );

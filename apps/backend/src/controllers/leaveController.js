@@ -58,6 +58,13 @@ async function createNotifications({
 }
 
 export const applyLeave = asyncHandler(async (req, res) => {
+  if (req.user.accountType === 'SYSTEM') {
+    throw new AppError(
+      'Head Admin system accounts do not apply for employee leave.',
+      403
+    );
+  }
+
   const {
     leaveType,
     startDate,
@@ -124,7 +131,9 @@ export const applyLeave = asyncHandler(async (req, res) => {
     `SELECT
        id,
        full_name,
-       employee_id
+       employee_id,
+       role,
+       account_type
      FROM employees
      WHERE id = ?
      LIMIT 1`,
@@ -136,6 +145,13 @@ export const applyLeave = asyncHandler(async (req, res) => {
   }
 
   const employee = employeeRows[0];
+
+  if (employee.account_type === 'SYSTEM') {
+    throw new AppError(
+      'Head Admin system accounts do not apply for employee leave.',
+      403
+    );
+  }
 
   const [result] = await pool.query(
     `INSERT INTO leave_requests (
@@ -158,18 +174,22 @@ export const applyLeave = asyncHandler(async (req, res) => {
     ]
   );
 
+  const approverRoles =
+    employee.role === 'ADMIN'
+      ? ['SUPER_ADMIN']
+      : ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'];
+
+  const approverPlaceholders = approverRoles
+    .map(() => '?')
+    .join(', ');
+
   const [approverRows] = await pool.query(
     `SELECT id
      FROM employees
-     WHERE role IN (
-       'SUPER_ADMIN',
-       'ADMIN',
-       'HR',
-       'MANAGER'
-     )
+     WHERE role IN (${approverPlaceholders})
        AND id <> ?
        AND status = 'ACTIVE'`,
-    [req.user.id]
+    [...approverRoles, req.user.id]
   );
 
   await createNotifications({
@@ -317,23 +337,60 @@ export const cancelMyLeave = asyncHandler(
 
 export const listLeaveRequests = asyncHandler(
   async (req, res) => {
-    const { status } = req.query;
+    const {
+      status,
+      search
+    } = req.query;
 
+    const conditions = [
+      "COALESCE(e.account_type, 'EMPLOYEE') = 'EMPLOYEE'"
+    ];
     const values = [];
-    let whereClause = '';
 
-    if (
-      status &&
-      [
+    // Admin/HR/Manager cannot process an Admin's leave.
+    // An Admin leave request is visible only to the Head Admin.
+    if (req.user.role !== 'SUPER_ADMIN') {
+      conditions.push(
+        "e.role NOT IN ('SUPER_ADMIN', 'ADMIN')"
+      );
+    }
+
+    if (status && status !== 'ALL') {
+      const allowedStatuses = [
         'PENDING',
         'APPROVED',
         'REJECTED',
         'CANCELLED'
-      ].includes(status)
-    ) {
-      whereClause = 'WHERE lr.status = ?';
+      ];
+
+      if (!allowedStatuses.includes(status)) {
+        throw new AppError('Invalid leave status.', 400);
+      }
+
+      conditions.push('lr.status = ?');
       values.push(status);
     }
+
+    const keyword = String(search || '').trim();
+
+    if (keyword) {
+      conditions.push(
+        `LOWER(CONCAT_WS(
+           ' ',
+           e.full_name,
+           e.employee_id,
+           e.designation,
+           e.role,
+           lr.leave_type,
+           lr.duration_type,
+           lr.status,
+           lr.reason
+         )) LIKE ?`
+      );
+      values.push(`%${keyword.toLowerCase()}%`);
+    }
+
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
     const [rows] = await pool.query(
       `SELECT
@@ -342,6 +399,7 @@ export const listLeaveRequests = asyncHandler(
          e.employee_id AS employee_code,
          e.full_name AS employee_name,
          e.designation,
+         e.role AS employee_role,
          lr.leave_type,
          lr.start_date,
          lr.end_date,
@@ -364,13 +422,19 @@ export const listLeaveRequests = asyncHandler(
            THEN 0
            ELSE 1
          END,
-         lr.created_at DESC`,
+         lr.created_at DESC
+       LIMIT 1000`,
       values
     );
 
     res.json({
       success: true,
-      data: rows
+      data: rows,
+      meta: {
+        count: rows.length,
+        status: status || 'ALL',
+        search: keyword || null
+      }
     });
   }
 );
@@ -396,7 +460,9 @@ export const reviewLeaveRequest = asyncHandler(
          lr.leave_type,
          lr.start_date,
          lr.end_date,
-         e.full_name AS employee_name
+         e.full_name AS employee_name,
+         e.role AS employee_role,
+         e.account_type AS employee_account_type
        FROM leave_requests lr
        JOIN employees e
          ON e.id = lr.employee_id
@@ -424,6 +490,23 @@ export const reviewLeaveRequest = asyncHandler(
     if (leaveRequest.employee_id === req.user.id) {
       throw new AppError(
         'You cannot approve or reject your own leave request.',
+        403
+      );
+    }
+
+    if (leaveRequest.employee_account_type === 'SYSTEM') {
+      throw new AppError(
+        'Head Admin system accounts do not use employee leave.',
+        400
+      );
+    }
+
+    if (
+      leaveRequest.employee_role === 'ADMIN' &&
+      req.user.role !== 'SUPER_ADMIN'
+    ) {
+      throw new AppError(
+        'Only the Head Admin can approve or reject an Admin leave request.',
         403
       );
     }

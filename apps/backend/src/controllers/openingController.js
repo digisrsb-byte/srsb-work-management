@@ -81,6 +81,79 @@ async function notifyOpeningTeam({
 }
 
 export const listOpenings = asyncHandler(async (req, res) => {
+  const {
+    search,
+    clientId,
+    status,
+    priority,
+    assignedRecruiterId
+  } = req.query;
+
+  const conditions = [];
+  const values = [];
+
+  if (clientId) {
+    const parsedClientId = Number(clientId);
+
+    if (!Number.isInteger(parsedClientId) || parsedClientId <= 0) {
+      throw new AppError('Invalid client filter.', 400);
+    }
+
+    conditions.push('jo.client_id = ?');
+    values.push(parsedClientId);
+  }
+
+  if (status && status !== 'ALL') {
+    if (!allowedStatuses.includes(status)) {
+      throw new AppError('Invalid opening status.', 400);
+    }
+
+    conditions.push('jo.status = ?');
+    values.push(status);
+  }
+
+  if (priority && priority !== 'ALL') {
+    if (!allowedPriorities.includes(priority)) {
+      throw new AppError('Invalid opening priority.', 400);
+    }
+
+    conditions.push('jo.priority = ?');
+    values.push(priority);
+  }
+
+  if (assignedRecruiterId) {
+    const parsedRecruiterId = Number(assignedRecruiterId);
+
+    if (!Number.isInteger(parsedRecruiterId) || parsedRecruiterId <= 0) {
+      throw new AppError('Invalid employee filter.', 400);
+    }
+
+    conditions.push('jo.assigned_recruiter_id = ?');
+    values.push(parsedRecruiterId);
+  }
+
+  const keyword = String(search || '').trim();
+
+  if (keyword) {
+    conditions.push(
+      `LOWER(CONCAT_WS(
+         ' ',
+         c.company_name,
+         jo.title,
+         jo.location,
+         e.full_name,
+         e.employee_id,
+         jo.status,
+         jo.priority
+       )) LIKE ?`
+    );
+    values.push(`%${keyword.toLowerCase()}%`);
+  }
+
+  const whereClause = conditions.length
+    ? `WHERE ${conditions.join(' AND ')}`
+    : '';
+
   const [rows] = await pool.query(
     `SELECT
        jo.id,
@@ -98,6 +171,7 @@ export const listOpenings = asyncHandler(async (req, res) => {
        jo.closed_date,
        jo.created_at,
        c.company_name,
+       e.employee_id AS assigned_recruiter_code,
        e.full_name AS assigned_recruiter_name,
        (
          SELECT COUNT(*)
@@ -110,13 +184,18 @@ export const listOpenings = asyncHandler(async (req, res) => {
        ON c.id = jo.client_id
      LEFT JOIN employees e
        ON e.id = jo.assigned_recruiter_id
+     ${whereClause}
      ORDER BY
        c.company_name ASC,
-       jo.created_at DESC`
+       jo.created_at DESC
+     LIMIT 1000`,
+    values
   );
 
   const data = rows.map((row) => ({
     ...row,
+    openings_count: Number(row.openings_count || 0),
+    filled_positions: Number(row.filled_positions || 0),
     remaining_positions: Math.max(
       Number(row.openings_count || 0) -
         Number(row.filled_positions || 0),
@@ -126,7 +205,15 @@ export const listOpenings = asyncHandler(async (req, res) => {
 
   res.json({
     success: true,
-    data
+    data,
+    meta: {
+      count: data.length,
+      search: keyword || null,
+      clientId: clientId || null,
+      status: status || 'ALL',
+      priority: priority || 'ALL',
+      assignedRecruiterId: assignedRecruiterId || null
+    }
   });
 });
 
@@ -210,105 +297,240 @@ export const createOpening = asyncHandler(
       clientId,
       title,
       location,
-      openingsCount,
+      openingsCount = 1,
       experienceMin,
       experienceMax,
       assignedRecruiterId,
-      priority,
-      status,
+      priority = 'MEDIUM',
+      status = 'OPEN',
       openedDate,
       targetCloseDate
     } = req.body;
 
-    const [[client]] = await pool.query(
-      `SELECT id
-       FROM clients
-       WHERE id = ?`,
-      [clientId]
-    );
+    const parsedClientId = Number(clientId);
+    const parsedOpeningsCount = Number(openingsCount);
 
-    if (!client) {
-      throw new AppError('Client not found.', 404);
+    if (!Number.isInteger(parsedClientId) || parsedClientId <= 0) {
+      throw new AppError('Select a valid client.', 400);
+    }
+
+    if (!title?.trim()) {
+      throw new AppError('Job role is required.', 400);
     }
 
     if (
-      assignedRecruiterId !== undefined &&
-      assignedRecruiterId !== null &&
-      assignedRecruiterId !== ''
+      !Number.isInteger(parsedOpeningsCount) ||
+      parsedOpeningsCount <= 0
     ) {
-      const [[employee]] = await pool.query(
-        `SELECT id
-         FROM employees
-         WHERE id = ?
-           AND status = 'ACTIVE'`,
-        [assignedRecruiterId]
+      throw new AppError(
+        'Openings count must be at least 1.',
+        400
       );
-
-      if (!employee) {
-        throw new AppError(
-          'Assigned employee not found or inactive.',
-          404
-        );
-      }
     }
 
-    const finalPriority = priority || 'MEDIUM';
-    const finalStatus = status || 'OPEN';
+    const parsedExperienceMin =
+      experienceMin === null ||
+      experienceMin === undefined ||
+      experienceMin === ''
+        ? null
+        : Number(experienceMin);
 
-    if (!allowedPriorities.includes(finalPriority)) {
+    const parsedExperienceMax =
+      experienceMax === null ||
+      experienceMax === undefined ||
+      experienceMax === ''
+        ? null
+        : Number(experienceMax);
+
+    if (
+      parsedExperienceMin !== null &&
+      (!Number.isFinite(parsedExperienceMin) ||
+        parsedExperienceMin < 0)
+    ) {
+      throw new AppError(
+        'Minimum experience must be zero or more.',
+        400
+      );
+    }
+
+    if (
+      parsedExperienceMax !== null &&
+      (!Number.isFinite(parsedExperienceMax) ||
+        parsedExperienceMax < 0)
+    ) {
+      throw new AppError(
+        'Maximum experience must be zero or more.',
+        400
+      );
+    }
+
+    if (
+      parsedExperienceMin !== null &&
+      parsedExperienceMax !== null &&
+      parsedExperienceMax < parsedExperienceMin
+    ) {
+      throw new AppError(
+        'Maximum experience cannot be lower than minimum experience.',
+        400
+      );
+    }
+
+    if (!allowedPriorities.includes(priority)) {
       throw new AppError('Invalid priority.', 400);
     }
 
-    if (!allowedStatuses.includes(finalStatus)) {
+    if (!allowedStatuses.includes(status)) {
       throw new AppError('Invalid opening status.', 400);
     }
 
-    const [result] = await pool.query(
-      `INSERT INTO job_openings
-       (
-         client_id,
-         title,
-         location,
-         openings_count,
-         experience_min,
-         experience_max,
-         assigned_recruiter_id,
-         priority,
-         status,
-         opened_date,
-         target_close_date
-       )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        clientId,
-        title.trim(),
-        location?.trim() || null,
-        openingsCount || 1,
-        experienceMin || null,
-        experienceMax || null,
-        assignedRecruiterId || null,
-        finalPriority,
-        finalStatus,
-        openedDate || null,
-        targetCloseDate || null
-      ]
-    );
-await notifyOpeningTeam({
-  actorId: req.user.id,
-  type: 'OPENING_CREATED',
-  title: 'New Job Opening Created',
-  message: `${title.trim()} opening was created for ${client.company_name}.`,
-  referenceId: result.insertId,
-  assignedRecruiterId: assignedRecruiterId || null
-});
+    const parsedRecruiterId =
+      assignedRecruiterId === null ||
+      assignedRecruiterId === undefined ||
+      assignedRecruiterId === ''
+        ? null
+        : Number(assignedRecruiterId);
 
-    res.status(201).json({
-      success: true,
-      message: 'Opening created successfully.',
-      data: {
-        id: result.insertId
+    if (
+      parsedRecruiterId !== null &&
+      (!Number.isInteger(parsedRecruiterId) ||
+        parsedRecruiterId <= 0)
+    ) {
+      throw new AppError('Invalid assigned employee.', 400);
+    }
+
+    const connection = await pool.getConnection();
+    let committed = false;
+
+    try {
+      await connection.beginTransaction();
+
+      const [[client]] = await connection.query(
+        `SELECT id, company_name, status
+         FROM clients
+         WHERE id = ?
+         LIMIT 1`,
+        [parsedClientId]
+      );
+
+      if (!client) {
+        throw new AppError('Client not found.', 404);
       }
-    });
+
+      if (client.status === 'CLOSED') {
+        throw new AppError(
+          'A requirement cannot be created for a closed client.',
+          409
+        );
+      }
+
+      if (parsedRecruiterId !== null) {
+        const [[employee]] = await connection.query(
+          `SELECT id
+           FROM employees
+           WHERE id = ?
+             AND status = 'ACTIVE'
+             AND COALESCE(account_type, 'EMPLOYEE') = 'EMPLOYEE'
+           LIMIT 1`,
+          [parsedRecruiterId]
+        );
+
+        if (!employee) {
+          throw new AppError(
+            'Assigned employee not found or inactive.',
+            404
+          );
+        }
+      }
+
+      const [result] = await connection.query(
+        `INSERT INTO job_openings
+         (
+           client_id,
+           title,
+           location,
+           openings_count,
+           experience_min,
+           experience_max,
+           assigned_recruiter_id,
+           priority,
+           status,
+           opened_date,
+           target_close_date
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          parsedClientId,
+          title.trim(),
+          location?.trim() || null,
+          parsedOpeningsCount,
+          parsedExperienceMin,
+          parsedExperienceMax,
+          parsedRecruiterId,
+          priority,
+          status,
+          openedDate || null,
+          targetCloseDate || null
+        ]
+      );
+
+      const [[createdOpening]] = await connection.query(
+        `SELECT
+           jo.id,
+           jo.client_id,
+           jo.title,
+           jo.location,
+           jo.openings_count,
+           jo.experience_min,
+           jo.experience_max,
+           jo.assigned_recruiter_id,
+           jo.priority,
+           jo.status,
+           jo.opened_date,
+           jo.target_close_date,
+           jo.created_at,
+           c.company_name,
+           e.full_name AS assigned_recruiter_name
+         FROM job_openings jo
+         JOIN clients c
+           ON c.id = jo.client_id
+         LEFT JOIN employees e
+           ON e.id = jo.assigned_recruiter_id
+         WHERE jo.id = ?`,
+        [result.insertId]
+      );
+
+      await connection.commit();
+      committed = true;
+
+      try {
+        await notifyOpeningTeam({
+          actorId: req.user.id,
+          type: 'OPENING_CREATED',
+          title: 'New Job Opening Created',
+          message: `${title.trim()} opening was created for ${client.company_name}.`,
+          referenceId: result.insertId,
+          assignedRecruiterId: parsedRecruiterId
+        });
+      } catch (notificationError) {
+        console.error(
+          '[opening] Notification failed:',
+          notificationError
+        );
+      }
+
+      res.status(201).json({
+        success: true,
+        message: 'Requirement created successfully.',
+        data: createdOpening
+      });
+    } catch (error) {
+      if (!committed) {
+        await connection.rollback();
+      }
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
 );
 

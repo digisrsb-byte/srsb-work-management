@@ -84,34 +84,92 @@ async function notifyAdmins({
 
 export const listTasks = asyncHandler(async (req, res) => {
   const isAdmin = adminRoles.includes(req.user.role);
+  const {
+    search,
+    status,
+    assignedTo
+  } = req.query;
 
-  const sql = isAdmin
-    ? `SELECT
-         t.*,
-         e.full_name AS assignee_name,
-         a.full_name AS assigned_by_name
-       FROM tasks t
-       JOIN employees e ON e.id = t.assigned_to
-       LEFT JOIN employees a ON a.id = t.assigned_by
-       ORDER BY t.created_at DESC`
-    : `SELECT
-         t.*,
-         e.full_name AS assignee_name,
-         a.full_name AS assigned_by_name
-       FROM tasks t
-       JOIN employees e ON e.id = t.assigned_to
-       LEFT JOIN employees a ON a.id = t.assigned_by
-       WHERE t.assigned_to = ?
-       ORDER BY t.created_at DESC`;
+  const conditions = [];
+  const values = [];
+
+  if (!isAdmin) {
+    conditions.push('t.assigned_to = ?');
+    values.push(req.user.id);
+  } else if (assignedTo) {
+    const parsedAssignedTo = Number(assignedTo);
+
+    if (!Number.isInteger(parsedAssignedTo) || parsedAssignedTo <= 0) {
+      throw new AppError('Invalid employee filter.', 400);
+    }
+
+    conditions.push('t.assigned_to = ?');
+    values.push(parsedAssignedTo);
+  }
+
+  if (status && status !== 'ALL') {
+    if (!allowedStatuses.includes(status)) {
+      throw new AppError('Invalid task status.', 400);
+    }
+
+    conditions.push('t.status = ?');
+    values.push(status);
+  }
+
+  const keyword = String(search || '').trim();
+
+  if (keyword) {
+    conditions.push(
+      `LOWER(CONCAT_WS(
+         ' ',
+         t.title,
+         t.description,
+         t.status,
+         t.priority,
+         e.full_name,
+         e.employee_id,
+         e.designation,
+         d.name,
+         a.full_name
+       )) LIKE ?`
+    );
+    values.push(`%${keyword.toLowerCase()}%`);
+  }
+
+  const whereClause = conditions.length
+    ? `WHERE ${conditions.join(' AND ')}`
+    : '';
 
   const [rows] = await pool.query(
-    sql,
-    isAdmin ? [] : [req.user.id]
+    `SELECT
+       t.*,
+       e.employee_id AS assignee_code,
+       e.full_name AS assignee_name,
+       e.designation AS assignee_designation,
+       d.name AS assignee_department,
+       a.full_name AS assigned_by_name
+     FROM tasks t
+     JOIN employees e
+       ON e.id = t.assigned_to
+     LEFT JOIN departments d
+       ON d.id = e.department_id
+     LEFT JOIN employees a
+       ON a.id = t.assigned_by
+     ${whereClause}
+     ORDER BY t.created_at DESC
+     LIMIT 1000`,
+    values
   );
 
   res.json({
     success: true,
-    data: rows
+    data: rows,
+    meta: {
+      count: rows.length,
+      search: keyword || null,
+      status: status || 'ALL',
+      assignedTo: assignedTo || null
+    }
   });
 });
 

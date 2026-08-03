@@ -154,3 +154,33 @@ th { color: var(--text-muted); font-size: 12px; text-transform: uppercase; lette
   .section-heading { align-items:flex-start; gap:12px; }
   .table-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
 }
+
+/* SRSB desktop control reliability */
+.page-content {
+  position: relative;
+  isolation: isolate;
+}
+
+.page-content button,
+.page-content input,
+.page-content select,
+.page-content textarea,
+.page-content [role='button'] {
+  -webkit-app-region: no-drag;
+  pointer-events: auto;
+}
+
+.page-content input,
+.page-content select,
+.page-content textarea {
+  position: relative;
+  z-index: 2;
+}
+
+.opening-search-wrap svg,
+.clients-search-wrap svg,
+.task-search-wrap svg,
+.request-search svg,
+.attendance-input-wrap svg {
+  pointer-events: none;
+}

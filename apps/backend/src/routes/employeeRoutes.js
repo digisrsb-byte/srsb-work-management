@@ -23,7 +23,10 @@ router.get(
   '/',
   allowRoles(
     'SUPER_ADMIN',
-    'ADMIN'
+    'ADMIN',
+    'HR',
+    'MANAGER',
+    'RECRUITER'
   ),
   listEmployees
 );

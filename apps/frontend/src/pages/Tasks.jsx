@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CalendarDays,
   CheckCircle2,
@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import api from '../services/api.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import useDebouncedValue from '../hooks/useDebouncedValue.js';
 
 const adminRoles = [
   'SUPER_ADMIN',
@@ -81,6 +82,7 @@ export default function Tasks() {
 
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const hasLoadedRef = useRef(false);
 
   const showMessage = (text) => {
     setError('');
@@ -92,105 +94,73 @@ export default function Tasks() {
     setError(text);
   };
 
-  const loadTasks = async () => {
+  const debouncedTaskSearch = useDebouncedValue(taskSearch, 300);
+  const debouncedEmployeeSearch = useDebouncedValue(
+    employeeSearch,
+    300
+  );
+
+  const loadTasks = useCallback(async ({ silent = false } = {}) => {
     try {
-      const response = await api.get('/tasks');
+      if (!silent && !hasLoadedRef.current) {
+        setLoading(true);
+      }
+
+      const params = {};
+
+      if (debouncedTaskSearch.trim()) {
+        params.search = debouncedTaskSearch.trim();
+      }
+
+      const response = await api.get('/tasks', { params });
       setTasks(response.data.data || []);
     } catch (err) {
       showError(
         err.response?.data?.message ||
           'Unable to load tasks.'
       );
+    } finally {
+      if (!silent) {
+        setLoading(false);
+      }
+      hasLoadedRef.current = true;
     }
-  };
+  }, [debouncedTaskSearch]);
 
-  const loadEmployees = async () => {
-    if (!canAssignTasks) return;
+  const loadEmployees = useCallback(async () => {
+    if (!canAssignTasks) {
+      setEmployees([]);
+      return;
+    }
 
     try {
-      const response = await api.get('/employees');
+      const params = { status: 'ACTIVE' };
 
-      const activeEmployees = (
-        response.data.data || []
-      ).filter(
-        (employee) =>
-          employee.status === 'ACTIVE' ||
-          !employee.status
-      );
+      if (debouncedEmployeeSearch.trim()) {
+        params.search = debouncedEmployeeSearch.trim();
+      }
 
-      setEmployees(activeEmployees);
+      const response = await api.get('/employees', { params });
+      setEmployees(response.data.data || []);
     } catch (err) {
       showError(
         err.response?.data?.message ||
           'Unable to load employees.'
       );
     }
-  };
-
-  const loadPage = async () => {
-    try {
-      setLoading(true);
-      setError('');
-
-      await Promise.all([
-        loadTasks(),
-        loadEmployees()
-      ]);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [canAssignTasks, debouncedEmployeeSearch]);
 
   useEffect(() => {
-    loadPage();
-  }, [user?.role]);
+    setError('');
+    loadTasks();
+  }, [loadTasks, user?.role]);
 
-  const filteredEmployees = useMemo(() => {
-    const keyword = employeeSearch
-      .trim()
-      .toLowerCase();
+  useEffect(() => {
+    loadEmployees();
+  }, [loadEmployees]);
 
-    if (!keyword) return employees;
-
-    return employees.filter((employee) => {
-      const searchableText = [
-        employee.full_name,
-        employee.employee_id,
-        employee.designation,
-        employee.department,
-        employee.email
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-
-      return searchableText.includes(keyword);
-    });
-  }, [employees, employeeSearch]);
-
-  const filteredTasks = useMemo(() => {
-    const keyword = taskSearch
-      .trim()
-      .toLowerCase();
-
-    if (!keyword) return tasks;
-
-    return tasks.filter((task) => {
-      const searchableText = [
-        task.title,
-        task.description,
-        task.assignee_name,
-        task.assigned_by_name,
-        task.status,
-        task.priority
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-
-      return searchableText.includes(keyword);
-    });
-  }, [tasks, taskSearch]);
+  const filteredEmployees = employees;
+  const filteredTasks = tasks;
 
   const handleTaskFormChange = (event) => {
     const { name, value } = event.target;
@@ -612,9 +582,11 @@ export default function Tasks() {
             className="task-search-input"
             placeholder="Search tasks or employees..."
             value={taskSearch}
-            onChange={(event) =>
-              setTaskSearch(event.target.value)
+            onInput={(event) =>
+              setTaskSearch(event.currentTarget.value)
             }
+            autoComplete="off"
+            aria-label="Search tasks"
           />
         </div>
       </div>
@@ -760,9 +732,11 @@ export default function Tasks() {
                 type="search"
                 placeholder="Search by name, ID or department"
                 value={employeeSearch}
-                onChange={(event) =>
-                  setEmployeeSearch(event.target.value)
+                onInput={(event) =>
+                  setEmployeeSearch(event.currentTarget.value)
                 }
+                autoComplete="off"
+                aria-label="Search employees for task assignment"
               />
 
               <div className="employee-search-results">

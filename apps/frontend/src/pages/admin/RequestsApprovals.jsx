@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle2,
   XCircle,
   CalendarDays,
-  Search
+  Search,
+  RefreshCw
 } from 'lucide-react';
 import api from '../../services/api.js';
+import useDebouncedValue from '../../hooks/useDebouncedValue.js';
 
 function formatDate(date) {
   if (!date) return '—';
@@ -35,16 +37,32 @@ export default function RequestsApprovals() {
   const [search, setSearch] = useState('');
   const [comments, setComments] = useState({});
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [processingId, setProcessingId] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  async function loadRequests() {
+  const debouncedSearch = useDebouncedValue(search, 300);
+
+  const loadRequests = useCallback(async ({ silent = false } = {}) => {
     try {
-      setLoading(true);
+      if (!silent) {
+        setLoading(true);
+      }
+
       setError('');
 
-      const response = await api.get('/leave');
+      const params = {};
+
+      if (statusFilter !== 'ALL') {
+        params.status = statusFilter;
+      }
+
+      if (debouncedSearch.trim()) {
+        params.search = debouncedSearch.trim();
+      }
+
+      const response = await api.get('/leave', { params });
 
       setRequests(response.data.data || []);
     } catch (requestError) {
@@ -53,37 +71,17 @@ export default function RequestsApprovals() {
           'Unable to load approval requests.'
       );
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
-  }
+  }, [statusFilter, debouncedSearch]);
 
   useEffect(() => {
     loadRequests();
-  }, []);
+  }, [loadRequests]);
 
-  const filteredRequests = useMemo(() => {
-    const searchValue = search.trim().toLowerCase();
-
-    return requests.filter((request) => {
-      const matchesStatus =
-        statusFilter === 'ALL' ||
-        request.status === statusFilter;
-
-      const matchesSearch =
-        !searchValue ||
-        request.employee_name
-          ?.toLowerCase()
-          .includes(searchValue) ||
-        request.employee_code
-          ?.toLowerCase()
-          .includes(searchValue) ||
-        request.leave_type
-          ?.toLowerCase()
-          .includes(searchValue);
-
-      return matchesStatus && matchesSearch;
-    });
-  }, [requests, statusFilter, search]);
+  const filteredRequests = requests;
 
   const summary = useMemo(() => {
     return {
@@ -154,6 +152,23 @@ export default function RequestsApprovals() {
             Review employee leave requests and approval history.
           </span>
         </div>
+
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={async () => {
+            setRefreshing(true);
+            await loadRequests({ silent: true });
+            setRefreshing(false);
+          }}
+          disabled={loading || refreshing}
+        >
+          <RefreshCw
+            size={17}
+            className={refreshing ? 'request-refresh-spin' : ''}
+          />
+          {refreshing ? 'Refreshing...' : 'Refresh'}
+        </button>
       </div>
 
       {message && (
@@ -197,17 +212,19 @@ export default function RequestsApprovals() {
           <input
             type="text"
             value={search}
-            onChange={(event) =>
-              setSearch(event.target.value)
+            onInput={(event) =>
+              setSearch(event.currentTarget.value)
             }
             placeholder="Search employee or leave type"
+            autoComplete="off"
+            aria-label="Search employee or leave type"
           />
         </div>
 
         <select
           value={statusFilter}
           onChange={(event) =>
-            setStatusFilter(event.target.value)
+            setStatusFilter(event.currentTarget.value)
           }
         >
           <option value="ALL">All Requests</option>
@@ -381,7 +398,19 @@ export default function RequestsApprovals() {
         }
 
         .requests-heading {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 16px;
           margin-bottom: 22px;
+        }
+
+        .request-refresh-spin {
+          animation: request-spin 0.8s linear infinite;
+        }
+
+        @keyframes request-spin {
+          to { transform: rotate(360deg); }
         }
 
         .requests-eyebrow {

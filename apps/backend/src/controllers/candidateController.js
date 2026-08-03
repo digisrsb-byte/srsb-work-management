@@ -70,6 +70,73 @@ async function notifyRecruitmentTeam({
 }
 
 export const listCandidates = asyncHandler(async (req, res) => {
+  const {
+    search,
+    stage,
+    openingId,
+    assignedRecruiterId
+  } = req.query;
+
+  const conditions = [];
+  const values = [];
+
+  if (stage && stage !== 'ALL') {
+    if (!allowedStages.includes(stage)) {
+      throw new AppError('Invalid candidate stage.', 400);
+    }
+
+    conditions.push('application.stage = ?');
+    values.push(stage);
+  }
+
+  if (openingId) {
+    const parsedOpeningId = Number(openingId);
+
+    if (!Number.isInteger(parsedOpeningId) || parsedOpeningId <= 0) {
+      throw new AppError('Invalid opening filter.', 400);
+    }
+
+    conditions.push('application.opening_id = ?');
+    values.push(parsedOpeningId);
+  }
+
+  if (assignedRecruiterId) {
+    const parsedRecruiterId = Number(assignedRecruiterId);
+
+    if (!Number.isInteger(parsedRecruiterId) || parsedRecruiterId <= 0) {
+      throw new AppError('Invalid employee filter.', 400);
+    }
+
+    conditions.push('application.assigned_recruiter_id = ?');
+    values.push(parsedRecruiterId);
+  }
+
+  const keyword = String(search || '').trim();
+
+  if (keyword) {
+    conditions.push(
+      `LOWER(CONCAT_WS(
+         ' ',
+         candidate.full_name,
+         candidate.email,
+         candidate.phone,
+         candidate.current_location,
+         candidate.preferred_location,
+         candidate.skills,
+         application.stage,
+         opening.title,
+         client.company_name,
+         recruiter.full_name,
+         recruiter.employee_id
+       )) LIKE ?`
+    );
+    values.push(`%${keyword.toLowerCase()}%`);
+  }
+
+  const whereClause = conditions.length
+    ? `WHERE ${conditions.join(' AND ')}`
+    : '';
+
   const [rows] = await pool.query(
     `SELECT
        candidate.id,
@@ -124,13 +191,23 @@ export const listCandidates = asyncHandler(async (req, res) => {
      LEFT JOIN employees closer
        ON closer.id = opening.closed_by
 
+     ${whereClause}
      ORDER BY candidate.created_at DESC,
-              application.last_updated DESC`
+              application.last_updated DESC
+     LIMIT 1000`,
+    values
   );
 
   res.json({
     success: true,
-    data: rows
+    data: rows,
+    meta: {
+      count: rows.length,
+      search: keyword || null,
+      stage: stage || 'ALL',
+      openingId: openingId || null,
+      assignedRecruiterId: assignedRecruiterId || null
+    }
   });
 });
 
