@@ -32,7 +32,7 @@ export const requestPasswordReset = asyncHandler(async (req, res) => {
   }
 
   const [rows] = await pool.query(
-    `SELECT id, employee_id, username, full_name, email, recovery_email, role, status
+    `SELECT id, employee_id, username, full_name, email, recovery_email, role, account_type, status
        FROM employees
       WHERE LOWER(COALESCE(employee_id, '')) = ?
          OR LOWER(COALESCE(username, '')) = ?

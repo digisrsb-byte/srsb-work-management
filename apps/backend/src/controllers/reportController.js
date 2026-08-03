@@ -80,7 +80,7 @@ export const getCompanyReport = asyncHandler(
            END
          ) AS employees_joined
        FROM employees
-       WHERE employee_id <> 'FOUNDER'`,
+       WHERE account_type = 'EMPLOYEE'`,
       [startDate, endDate]
     );
 
@@ -99,7 +99,7 @@ export const getCompanyReport = asyncHandler(
        FROM employees e
        LEFT JOIN departments d
          ON d.id = e.department_id
-       WHERE e.employee_id <> 'FOUNDER'
+       WHERE e.account_type = 'EMPLOYEE'
        ORDER BY e.full_name ASC`
     );
 
@@ -146,7 +146,7 @@ export const getCompanyReport = asyncHandler(
        LEFT JOIN attendance a
          ON a.employee_id = e.id
         AND a.attendance_date BETWEEN ? AND ?
-       WHERE e.employee_id <> 'FOUNDER'
+       WHERE e.account_type = 'EMPLOYEE'
        GROUP BY
          e.id,
          e.employee_id,

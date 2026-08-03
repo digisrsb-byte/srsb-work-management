@@ -10,10 +10,11 @@ export const adminDashboard = asyncHandler(async (req, res) => {
         : "WHERE e.role NOT IN ('SUPER_ADMIN','ADMIN')";
 
   const [[employeeRow]] = await pool.query(
-    `SELECT COUNT(*) total,
-            SUM(e.status = 'ACTIVE') active
-       FROM employees e
-       ${employeeVisibilityClause}`
+    `SELECT
+       COUNT(*) total,
+       SUM(e.status = 'ACTIVE') active
+     FROM employees e
+     WHERE e.account_type = 'EMPLOYEE'`
   );
   const [[clientRow]] = await pool.query(
     `SELECT COUNT(*) total,

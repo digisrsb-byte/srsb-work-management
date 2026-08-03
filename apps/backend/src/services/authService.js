@@ -4,69 +4,117 @@ import { pool } from '../config/database.js';
 import { env } from '../config/env.js';
 import { AppError } from '../utils/AppError.js';
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const HEAD_ADMIN_EMAIL = String(
+  process.env.SUPER_ADMIN_EMAIL ||
+  'info@srsbworkforcesolutions.com'
+).trim().toLowerCase();
 
-function invalidCredentials() {
-  throw new AppError('Invalid login ID or password.', 401);
+function invalidLogin() {
+  throw new AppError(
+    'Invalid login ID or password.',
+    401
+  );
 }
 
 export async function login(loginId, password) {
-  const normalizedLogin = String(loginId || '').trim().toLowerCase();
+  const normalizedLogin = String(
+    loginId || ''
+  ).trim().toLowerCase();
 
   const [rows] = await pool.query(
-    `SELECT e.id, e.employee_id, e.username, e.full_name, e.email,
-      e.recovery_email, e.password_hash, e.role, e.designation, e.status,
-      d.name AS department
+    `SELECT
+       e.id,
+       e.employee_id,
+       e.username,
+       e.full_name,
+       e.email,
+       e.recovery_email,
+       e.password_hash,
+       e.role,
+       e.account_type,
+       e.designation,
+       e.status,
+       d.name AS department
      FROM employees e
-     LEFT JOIN departments d ON d.id = e.department_id
+     LEFT JOIN departments d
+       ON d.id = e.department_id
      WHERE LOWER(COALESCE(e.email, '')) = ?
         OR LOWER(COALESCE(e.employee_id, '')) = ?
         OR LOWER(COALESCE(e.username, '')) = ?
      LIMIT 1`,
-    [normalizedLogin, normalizedLogin, normalizedLogin]
+    [
+      normalizedLogin,
+      normalizedLogin,
+      normalizedLogin
+    ]
   );
 
-  const employee = rows[0];
+  const account = rows[0];
 
-  if (!employee || employee.status !== 'ACTIVE') {
-    invalidCredentials();
+  if (
+    !account ||
+    account.status !== 'ACTIVE'
+  ) {
+    invalidLogin();
   }
 
-  if (employee.role === 'SUPER_ADMIN') {
-    const accountEmail = String(employee.email || '').trim().toLowerCase();
+  const isSystemAccount =
+    account.account_type === 'SYSTEM';
+
+  if (isSystemAccount) {
+    const accountEmail = String(
+      account.email || ''
+    ).trim().toLowerCase();
 
     if (
-      !EMAIL_PATTERN.test(normalizedLogin) ||
+      account.role !== 'SUPER_ADMIN' ||
       normalizedLogin !== accountEmail ||
-      accountEmail !== env.superAdminEmail
+      accountEmail !== HEAD_ADMIN_EMAIL
     ) {
-      invalidCredentials();
+      invalidLogin();
     }
+  } else if (
+    account.role === 'SUPER_ADMIN'
+  ) {
+    // A normal employee record must never receive
+    // Head Admin authority.
+    invalidLogin();
   }
 
-  const isValid = await bcrypt.compare(password, employee.password_hash);
+  const isValid = await bcrypt.compare(
+    String(password || ''),
+    account.password_hash
+  );
 
   if (!isValid) {
-    invalidCredentials();
+    invalidLogin();
   }
 
   const token = jwt.sign(
     {
-      id: employee.id,
-      employeeId: employee.employee_id,
-      username: employee.username,
-      email: employee.email,
-      role: employee.role,
-      fullName: employee.full_name
+      id: account.id,
+      employeeId: account.employee_id,
+      username: account.username,
+      email: account.email,
+      role: account.role,
+      accountType: account.account_type,
+      fullName: account.full_name
     },
     env.jwtSecret,
-    { expiresIn: env.jwtExpiresIn }
+    {
+      expiresIn: env.jwtExpiresIn
+    }
   );
 
-  delete employee.password_hash;
+  delete account.password_hash;
+
+  account.accountType =
+    account.account_type;
+
+  delete account.account_type;
 
   return {
     token,
-    user: employee
+    user: account
   };
 }

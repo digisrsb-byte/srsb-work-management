@@ -6,10 +6,10 @@ import { AppError } from '../utils/AppError.js';
 export const listEmployees = asyncHandler(async (req, res) => {
   const visibilityClause =
     req.user.role === 'SUPER_ADMIN'
-      ? ''
+      ? "WHERE e.account_type = 'EMPLOYEE'"
       : req.user.role === 'ADMIN'
-        ? "WHERE e.role <> 'SUPER_ADMIN'"
-        : "WHERE e.role NOT IN ('SUPER_ADMIN','ADMIN')";
+        ? "WHERE e.account_type = 'EMPLOYEE' AND e.role <> 'SUPER_ADMIN'"
+        : "WHERE e.account_type = 'EMPLOYEE' AND e.role NOT IN ('SUPER_ADMIN','ADMIN')";
 
   const [rows] = await pool.query(
     `SELECT
