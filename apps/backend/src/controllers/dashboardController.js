@@ -2,10 +2,18 @@ import { pool } from '../config/database.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
 export const adminDashboard = asyncHandler(async (req, res) => {
+  const employeeVisibilityClause =
+    req.user.role === 'SUPER_ADMIN'
+      ? ''
+      : req.user.role === 'ADMIN'
+        ? "WHERE e.role <> 'SUPER_ADMIN'"
+        : "WHERE e.role NOT IN ('SUPER_ADMIN','ADMIN')";
+
   const [[employeeRow]] = await pool.query(
     `SELECT COUNT(*) total,
-            SUM(status='ACTIVE') active
-       FROM employees`
+            SUM(e.status = 'ACTIVE') active
+       FROM employees e
+       ${employeeVisibilityClause}`
   );
   const [[clientRow]] = await pool.query(
     `SELECT COUNT(*) total,

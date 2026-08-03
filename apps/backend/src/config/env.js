@@ -34,6 +34,12 @@ export const env = {
     process.env.CORS_ORIGIN ||
     'http://localhost:5173',
 
+  superAdminEmail:
+    String(
+      process.env.SUPER_ADMIN_EMAIL ||
+      'info@srsbworkforcesolutions.com'
+    ).trim().toLowerCase(),
+
   smtpHost: process.env.SMTP_HOST || '',
   smtpPort: Number(
     process.env.SMTP_PORT || 587
