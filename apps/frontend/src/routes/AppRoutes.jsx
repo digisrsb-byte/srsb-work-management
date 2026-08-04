@@ -101,7 +101,7 @@ export default function AppRoutes() {
         />
 
         <Route path="/admin/holidays" element={<Holidays />} />
-        <Route path="/admin/invoices" element={<ProtectedRoute roles={['SUPER_ADMIN','ADMIN','HR','MANAGER']}><Invoices /></ProtectedRoute>} />
+        <Route path="/admin/invoices" element={<ProtectedRoute roles={['SUPER_ADMIN']}><Invoices /></ProtectedRoute>} />
 
       <Route
   path="/admin/candidates"

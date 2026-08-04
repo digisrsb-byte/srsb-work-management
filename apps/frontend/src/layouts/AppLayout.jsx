@@ -66,6 +66,10 @@ export default function AppLayout({ mode }) {
   const filteredAdminNavigation = adminNavigation.map((group) => ({
     ...group,
     items: group.items.filter((item) => {
+      if (item.path === '/admin/invoices') {
+        return user?.role === 'SUPER_ADMIN';
+      }
+
       if (['/admin/employees', '/admin/passwords'].includes(item.path)) {
         return ['SUPER_ADMIN', 'ADMIN'].includes(user?.role);
       }
