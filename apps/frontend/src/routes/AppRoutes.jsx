@@ -19,6 +19,10 @@ import AttendanceManagement from '../pages/admin/AttendanceManagement.jsx';
 import Candidates from '../pages/admin/Candidates.jsx';
 import Settings from '../pages/Settings.jsx';
 import PasswordManagement from '../pages/admin/PasswordManagement.jsx';
+import AttendanceCorrections from '../pages/admin/AttendanceCorrections.jsx';
+import MyAttendanceCorrections from '../pages/employee/MyAttendanceCorrections.jsx';
+import Holidays from '../pages/admin/Holidays.jsx';
+import Invoices from '../pages/admin/Invoices.jsx';
 
 const adminRoles = [
   'SUPER_ADMIN',
@@ -89,10 +93,15 @@ export default function AppRoutes() {
   element={<AttendanceManagement />}
 />
 
+        <Route path="/admin/attendance-corrections" element={<AttendanceCorrections />} />
+
         <Route
           path="/admin/requests"
           element={<RequestsApprovals />}
         />
+
+        <Route path="/admin/holidays" element={<Holidays />} />
+        <Route path="/admin/invoices" element={<ProtectedRoute roles={['SUPER_ADMIN','ADMIN','HR','MANAGER']}><Invoices /></ProtectedRoute>} />
 
       <Route
   path="/admin/candidates"
@@ -117,6 +126,8 @@ export default function AppRoutes() {
           path="/admin/my-attendance"
           element={<MyAttendance />}
         />
+
+        <Route path="/admin/my-attendance-corrections" element={<MyAttendanceCorrections />} />
 
         <Route
           path="/admin/my-leave"
@@ -145,6 +156,10 @@ export default function AppRoutes() {
           path="/employee/attendance"
           element={<MyAttendance />}
         />
+
+        <Route path="/employee/attendance-corrections" element={<MyAttendanceCorrections />} />
+
+        <Route path="/employee/holidays" element={<Holidays />} />
 
         <Route
           path="/employee/leave"

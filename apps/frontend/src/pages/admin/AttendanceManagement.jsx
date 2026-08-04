@@ -243,6 +243,9 @@ export default function AttendanceManagement() {
               <option value="HALF_DAY">Half Day</option>
               <option value="ABSENT">Absent</option>
               <option value="LEAVE">Leave</option>
+              <option value="WEEK_OFF">Week Off</option>
+              <option value="HOLIDAY">Holiday</option>
+              <option value="MISSING_PUNCH">Missing Punch</option>
             </select>
           </label>
 

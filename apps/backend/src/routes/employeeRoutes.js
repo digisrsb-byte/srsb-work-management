@@ -5,6 +5,7 @@ import {
   deleteEmployee,
   listEmployees,
   updateEmployee,
+  getEmployeeFormMeta,
   listPasswordResetRequests,
   adminResetEmployeePassword,
   rejectPasswordResetRequest
@@ -18,6 +19,13 @@ import { validate } from '../middleware/validate.js';
 const router = Router();
 
 router.use(authenticate);
+
+
+router.get(
+  '/form-meta',
+  allowRoles('SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'),
+  getEmployeeFormMeta
+);
 
 router.get(
   '/',
@@ -44,6 +52,10 @@ router.post(
     body('password').isLength({ min: 8 }),
     body('email').optional({ checkFalsy: true }).isEmail(),
     body('recoveryEmail').optional({ checkFalsy: true }).isEmail(),
+    body('departmentId').isInt({ min: 1 }),
+    body('designation').trim().notEmpty(),
+    body('managerId').optional({ checkFalsy: true }).isInt({ min: 1 }),
+    body('joiningDate').optional({ checkFalsy: true }).isISO8601(),
     validate
   ],
   createEmployee

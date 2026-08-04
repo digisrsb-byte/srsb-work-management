@@ -6,7 +6,10 @@ const allowedStatuses = [
   'PRESENT',
   'ABSENT',
   'HALF_DAY',
-  'LEAVE'
+  'LEAVE',
+  'WEEK_OFF',
+  'HOLIDAY',
+  'MISSING_PUNCH'
 ];
 
 function ensureEmployeeAccount(req) {

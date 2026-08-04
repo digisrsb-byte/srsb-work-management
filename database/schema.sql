@@ -17,8 +17,10 @@ CREATE TABLE employees (
     email VARCHAR(160) UNIQUE,
     recovery_email VARCHAR(160) NULL,
     phone VARCHAR(25),
+    date_of_birth DATE NULL,
     password_hash VARCHAR(255) NOT NULL,
     role ENUM('SUPER_ADMIN','ADMIN','HR','MANAGER','EMPLOYEE','RECRUITER') NOT NULL DEFAULT 'EMPLOYEE',
+    account_type ENUM('EMPLOYEE','SYSTEM') NOT NULL DEFAULT 'EMPLOYEE',
     designation VARCHAR(120),
     department_id INT NULL,
     manager_id INT NULL,
@@ -28,6 +30,7 @@ CREATE TABLE employees (
     shift_end TIME DEFAULT '18:30:00',
     weekly_off_day ENUM('MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY','SUNDAY') DEFAULT 'SUNDAY',
     must_change_password BOOLEAN DEFAULT TRUE,
+    password_changed_at DATETIME NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_employee_department FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL,
@@ -71,6 +74,9 @@ CREATE TABLE attendance_correction_requests (
     employee_id INT NOT NULL,
     attendance_id INT,
     correction_date DATE NOT NULL,
+    issue_type ENUM('FORGOT_PUNCH_IN','FORGOT_PUNCH_OUT','FORGOT_BOTH','INCORRECT_TIME','ATTENDANCE_MISSING','OTHER') NOT NULL DEFAULT 'OTHER',
+    original_punch_in DATETIME,
+    original_punch_out DATETIME,
     requested_punch_in DATETIME,
     requested_punch_out DATETIME,
     reason VARCHAR(500) NOT NULL,
@@ -87,8 +93,18 @@ CREATE TABLE attendance_correction_requests (
 CREATE TABLE clients (
     id INT AUTO_INCREMENT PRIMARY KEY,
     company_name VARCHAR(180) NOT NULL,
+    gst_number VARCHAR(32),
+    address_line TEXT,
+    city VARCHAR(120),
+    state VARCHAR(120),
+    postal_code VARCHAR(16),
     industry VARCHAR(120),
     website VARCHAR(255),
+    company_email VARCHAR(160),
+    company_phone VARCHAR(25),
+    contact_person_name VARCHAR(120),
+    contact_person_email VARCHAR(160),
+    contact_person_phone VARCHAR(25),
     contact_name VARCHAR(120),
     contact_email VARCHAR(160),
     contact_phone VARCHAR(25),
@@ -149,6 +165,28 @@ CREATE TABLE candidate_applications (
     CONSTRAINT fk_application_recruiter FOREIGN KEY (assigned_recruiter_id) REFERENCES employees(id) ON DELETE SET NULL
 );
 
+CREATE TABLE candidate_employment_history (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    candidate_id INT NOT NULL,
+    client_id INT NULL,
+    company_name_snapshot VARCHAR(180) NOT NULL,
+    position VARCHAR(180) NOT NULL,
+    ctc DECIMAL(14,2) NOT NULL DEFAULT 0,
+    joining_date DATE NULL,
+    leaving_date DATE NULL,
+    employment_status ENUM('OFFERED','JOINED','ACTIVE','LEFT','NO_SHOW','TERMINATED') NOT NULL DEFAULT 'JOINED',
+    reason_for_leaving VARCHAR(500),
+    notes VARCHAR(1000),
+    recorded_by INT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_candidate_history_candidate (candidate_id),
+    INDEX idx_candidate_history_client (client_id),
+    CONSTRAINT fk_candidate_history_candidate FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE,
+    CONSTRAINT fk_candidate_history_client FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL,
+    CONSTRAINT fk_candidate_history_recorder FOREIGN KEY (recorded_by) REFERENCES employees(id) ON DELETE SET NULL
+);
+
 CREATE TABLE tasks (
     id INT AUTO_INCREMENT PRIMARY KEY,
     title VARCHAR(180) NOT NULL,
@@ -188,12 +226,24 @@ CREATE TABLE invoices (
     candidate_id INT,
     closed_by INT,
     billing_model ENUM('FIXED','PERCENTAGE_CTC') DEFAULT 'FIXED',
+    service_charges DECIMAL(14,2) NOT NULL DEFAULT 0,
+    gst_type ENUM('NONE','IGST','CGST_SGST') NOT NULL DEFAULT 'NONE',
+    igst_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+    cgst_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+    sgst_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
     subtotal DECIMAL(14,2) NOT NULL DEFAULT 0,
     gst_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
     total_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+    paid_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+    payment_released BOOLEAN NOT NULL DEFAULT FALSE,
+    payment_date DATE,
     invoice_date DATE NOT NULL,
     due_date DATE,
     status ENUM('DRAFT','PENDING','PARTIALLY_PAID','PAID','OVERDUE','CANCELLED') DEFAULT 'PENDING',
+    gst_file_name VARCHAR(255),
+    gst_file_mime VARCHAR(120),
+    gst_file_data LONGBLOB,
+    notes VARCHAR(1000),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_invoice_client FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE RESTRICT,
     CONSTRAINT fk_invoice_opening FOREIGN KEY (opening_id) REFERENCES job_openings(id) ON DELETE SET NULL,
@@ -223,15 +273,37 @@ CREATE TABLE expenses (
     CONSTRAINT fk_expense_recorded_by FOREIGN KEY (recorded_by) REFERENCES employees(id) ON DELETE SET NULL
 );
 
+CREATE TABLE holidays (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    holiday_name VARCHAR(180) NOT NULL,
+    holiday_date DATE NOT NULL,
+    holiday_type ENUM('NATIONAL','COMPANY','OPTIONAL','REGIONAL','WEEKEND') NOT NULL DEFAULT 'COMPANY',
+    description VARCHAR(500),
+    department_id INT NULL,
+    created_by INT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_holiday_date_department (holiday_date, department_id),
+    INDEX idx_holiday_date (holiday_date),
+    CONSTRAINT fk_holiday_department FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL,
+    CONSTRAINT fk_holiday_creator FOREIGN KEY (created_by) REFERENCES employees(id) ON DELETE SET NULL
+);
+
 CREATE TABLE notifications (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    employee_id INT NOT NULL,
+    recipient_id INT NOT NULL,
+    actor_id INT NULL,
+    type VARCHAR(80) NOT NULL DEFAULT 'GENERAL',
     title VARCHAR(180) NOT NULL,
     message VARCHAR(1000) NOT NULL,
-    type VARCHAR(80) DEFAULT 'GENERAL',
-    is_read BOOLEAN DEFAULT FALSE,
+    reference_type VARCHAR(100),
+    reference_id VARCHAR(100),
+    is_read BOOLEAN NOT NULL DEFAULT FALSE,
+    read_at DATETIME,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_notification_employee FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
+    INDEX idx_notifications_recipient_read (recipient_id, is_read, created_at),
+    CONSTRAINT fk_notification_recipient FOREIGN KEY (recipient_id) REFERENCES employees(id) ON DELETE CASCADE,
+    CONSTRAINT fk_notification_actor FOREIGN KEY (actor_id) REFERENCES employees(id) ON DELETE SET NULL
 );
 
 CREATE TABLE audit_logs (
@@ -249,11 +321,8 @@ CREATE TABLE audit_logs (
 );
 
 INSERT INTO departments (name, description) VALUES
-('Management', 'Company administration'),
-('Human Resources', 'HR operations'),
-('Recruitment', 'Recruitment and client delivery'),
-('Marketing', 'Digital marketing and lead generation'),
-('Finance', 'Finance and accounts');
+('Technical', 'Technical and software team'),
+('HR', 'Human resources and recruitment team');
 
 CREATE TABLE IF NOT EXISTS password_reset_requests (
   id INT AUTO_INCREMENT PRIMARY KEY,

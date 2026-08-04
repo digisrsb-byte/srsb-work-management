@@ -3,6 +3,7 @@ import { body } from 'express-validator';
 
 import {
   listClients,
+  listClientReferences,
   getClientById,
   createClient,
   updateClient,
@@ -30,6 +31,20 @@ router.get(
     'RECRUITER'
   ),
   listClients
+);
+
+
+router.get(
+  '/reference',
+  allowRoles(
+    'SUPER_ADMIN',
+    'ADMIN',
+    'HR',
+    'MANAGER',
+    'RECRUITER',
+    'EMPLOYEE'
+  ),
+  listClientReferences
 );
 
 router.get(

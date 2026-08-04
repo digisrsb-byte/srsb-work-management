@@ -31,6 +31,12 @@ async function sendPunchInReminders() {
        AND a.punch_in IS NULL
        AND NOT EXISTS (
          SELECT 1
+         FROM holidays h
+         WHERE h.holiday_date = CURDATE()
+           AND (h.department_id IS NULL OR h.department_id = e.department_id)
+       )
+       AND NOT EXISTS (
+         SELECT 1
          FROM notifications n
          WHERE n.recipient_id = e.id
            AND n.type = 'PUNCH_IN_REMINDER'

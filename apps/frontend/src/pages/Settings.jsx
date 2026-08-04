@@ -1,55 +1,38 @@
-import {
-  useState
-} from 'react';
-import {
-  Building2,
-  Bell,
-  LockKeyhole,
-  Save,
-  UserCircle
-} from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Bell, DownloadCloud, LockKeyhole, RefreshCw, Save, UserCircle } from 'lucide-react';
 import api from '../services/api.js';
 import { useAuth } from '../context/AuthContext.jsx';
 
 export default function Settings() {
   const { user } = useAuth();
-
+  const desktop = window.srsbDesktop;
   const [preferences, setPreferences] = useState(() => {
     const saved = localStorage.getItem('srsb-settings');
-
-    return saved
-      ? JSON.parse(saved)
-      : {
-          emailNotifications: true,
-          leaveNotifications: true,
-          taskNotifications: true,
-          candidateNotifications: true
-        };
+    return saved ? JSON.parse(saved) : {
+      emailNotifications: true,
+      leaveNotifications: true,
+      taskNotifications: true,
+      candidateNotifications: true
+    };
   });
-
-  const [passwordForm, setPasswordForm] = useState({
-    currentPassword: '',
-    newPassword: '',
-    confirmPassword: ''
-  });
-
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [version, setVersion] = useState('Web');
+  const [updateInfo, setUpdateInfo] = useState(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [progress, setProgress] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [savingPassword, setSavingPassword] = useState(false);
 
-  const isAdmin = [
-    'SUPER_ADMIN',
-    'ADMIN',
-    'HR',
-    'MANAGER'
-  ].includes(user?.role);
+  useEffect(() => {
+    desktop?.getVersion?.().then(setVersion).catch(() => setVersion('Web'));
+    const removeProgress = desktop?.onUpdateProgress?.((data) => setProgress(data.progress));
+    return () => removeProgress?.();
+  }, [desktop]);
 
   function savePreferences() {
-    localStorage.setItem(
-      'srsb-settings',
-      JSON.stringify(preferences)
-    );
-
+    localStorage.setItem('srsb-settings', JSON.stringify(preferences));
     setError('');
     setMessage('Notification preferences saved successfully.');
   }
@@ -58,362 +41,101 @@ export default function Settings() {
     event.preventDefault();
     setError('');
     setMessage('');
-
-    if (
-      passwordForm.newPassword !==
-      passwordForm.confirmPassword
-    ) {
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
       setError('New password and confirmation do not match.');
       return;
     }
-
     if (passwordForm.newPassword.length < 8) {
-      setError(
-        'New password must contain at least 8 characters.'
-      );
+      setError('New password must contain at least 8 characters.');
       return;
     }
-
-    setSavingPassword(true);
-
     try {
+      setSavingPassword(true);
       await api.put('/profile/password', {
         currentPassword: passwordForm.currentPassword,
         newPassword: passwordForm.newPassword
       });
-
-      setPasswordForm({
-        currentPassword: '',
-        newPassword: '',
-        confirmPassword: ''
-      });
-
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
       setMessage('Password changed successfully.');
-    } catch (err) {
-      setError(
-        err.response?.data?.message ||
-          'Password could not be changed.'
-      );
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || 'Password could not be changed.');
     } finally {
       setSavingPassword(false);
     }
   }
 
+  async function checkUpdates() {
+    if (!desktop?.checkForUpdates) {
+      setError('Automatic updates are available only in the installed desktop application.');
+      return;
+    }
+    try {
+      setCheckingUpdate(true);
+      setError('');
+      const result = await desktop.checkForUpdates({ refresh: true });
+      setUpdateInfo(result);
+      setMessage(result.updateAvailable
+        ? `Version ${result.latestVersion} is available.`
+        : result.success
+          ? `Version ${result.currentVersion} is up to date.`
+          : 'The update server could not be reached.');
+    } catch (requestError) {
+      setError(requestError?.message || 'Unable to check for updates.');
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }
+
+  async function installUpdate() {
+    try {
+      setDownloading(true);
+      setError('');
+      await desktop.downloadUpdate(updateInfo);
+    } catch (requestError) {
+      setError(requestError?.message || 'The update could not be downloaded.');
+      setDownloading(false);
+    }
+  }
+
   return (
-    <>
-      <div className="section-heading">
-        <div>
-          <h1 className="page-title">Settings</h1>
-          <p className="page-subtitle">
-            Manage your account, notifications and system preferences.
-          </p>
-        </div>
-      </div>
+    <div className="module-page">
+      <div className="page-heading-row"><div><p className="eyebrow">System & Account</p><h1 className="page-title">Settings & Updates</h1><p className="page-subtitle">Manage your account preferences, password and application version.</p></div></div>
+      {error && <div className="message message-error">{error}</div>}
+      {message && <div className="message message-success">{message}</div>}
 
-      {error && (
-        <div
-          className="message message-error"
-          style={{ marginBottom: 16 }}
-        >
-          {error}
-        </div>
-      )}
-
-      {message && (
-        <div
-          className="message message-success"
-          style={{ marginBottom: 16 }}
-        >
-          {message}
-        </div>
-      )}
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns:
-            'repeat(auto-fit, minmax(320px, 1fr))',
-          gap: 20
-        }}
-      >
-        <div className="card">
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              marginBottom: 20
-            }}
-          >
-            <UserCircle size={24} />
-
-            <div>
-              <h2 style={{ margin: 0 }}>Account Information</h2>
-              <p
-                className="page-subtitle"
-                style={{ marginTop: 4 }}
-              >
-                Your current login and employment details.
-              </p>
-            </div>
-          </div>
-
-          <div className="form-grid">
-            <div className="form-group">
-              <label>Employee Name</label>
-              <input
-                className="input"
-                value={
-                  user?.full_name ||
-                  user?.fullName ||
-                  ''
-                }
-                disabled
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Role</label>
-              <input
-                className="input"
-                value={user?.role || ''}
-                disabled
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Designation</label>
-              <input
-                className="input"
-                value={user?.designation || ''}
-                disabled
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Official Email</label>
-              <input
-                className="input"
-                value={user?.email || ''}
-                disabled
-              />
-            </div>
-          </div>
-
-          <p
-            style={{
-              marginTop: 16,
-              color: 'var(--text-muted)',
-              fontSize: 13
-            }}
-          >
-            Official employee information can only be changed from
-            Employee Management by an authorised administrator.
-          </p>
+      <div className="settings-grid">
+        <div className="card settings-card">
+          <div className="settings-card-heading"><UserCircle size={24} /><div><h2>Account Information</h2><p>Your current login and employment details.</p></div></div>
+          <div className="form-grid"><label className="form-group"><span>Employee Name</span><input className="input" value={user?.full_name || user?.fullName || ''} disabled /></label><label className="form-group"><span>Role</span><input className="input" value={user?.role || ''} disabled /></label><label className="form-group"><span>Designation</span><input className="input" value={user?.designation || ''} disabled /></label><label className="form-group"><span>Official Email</span><input className="input" value={user?.email || ''} disabled /></label></div>
         </div>
 
-        <div className="card">
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              marginBottom: 20
-            }}
-          >
-            <Bell size={24} />
-
-            <div>
-              <h2 style={{ margin: 0 }}>
-                Notification Preferences
-              </h2>
-              <p
-                className="page-subtitle"
-                style={{ marginTop: 4 }}
-              >
-                Choose which application alerts you want to receive.
-              </p>
-            </div>
-          </div>
-
+        <div className="card settings-card">
+          <div className="settings-card-heading"><Bell size={24} /><div><h2>Notification Preferences</h2><p>Choose which alerts you want to receive.</p></div></div>
           {[
-            {
-              key: 'emailNotifications',
-              label: 'Email Notifications'
-            },
-            {
-              key: 'leaveNotifications',
-              label: 'Leave Request Updates'
-            },
-            {
-              key: 'taskNotifications',
-              label: 'Task Updates'
-            },
-            {
-              key: 'candidateNotifications',
-              label: 'Candidate and Recruitment Updates'
-            }
-          ].map((item) => (
-            <label
-              key={item.key}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 16,
-                padding: '12px 0',
-                borderBottom:
-                  '1px solid var(--border-color)'
-              }}
-            >
-              <span>{item.label}</span>
-
-              <input
-                type="checkbox"
-                checked={preferences[item.key]}
-                onChange={(event) =>
-                  setPreferences({
-                    ...preferences,
-                    [item.key]: event.target.checked
-                  })
-                }
-              />
-            </label>
-          ))}
-
-          <button
-            className="btn btn-primary"
-            onClick={savePreferences}
-            style={{ marginTop: 20 }}
-          >
-            <Save size={17} />
-            Save Preferences
-          </button>
+            ['emailNotifications', 'Email Notifications'],
+            ['leaveNotifications', 'Leave Request Updates'],
+            ['taskNotifications', 'Task Updates'],
+            ['candidateNotifications', 'Candidate and Recruitment Updates']
+          ].map(([key, label]) => <label className="settings-toggle" key={key}><span>{label}</span><input type="checkbox" checked={preferences[key]} onChange={(event) => setPreferences((current) => ({ ...current, [key]: event.target.checked }))} /></label>)}
+          <button className="btn btn-primary" type="button" onClick={savePreferences}><Save size={17} /> Save Preferences</button>
         </div>
 
-        <form className="card" onSubmit={changePassword}>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              marginBottom: 20
-            }}
-          >
-            <LockKeyhole size={24} />
-
-            <div>
-              <h2 style={{ margin: 0 }}>Change Password</h2>
-              <p
-                className="page-subtitle"
-                style={{ marginTop: 4 }}
-              >
-                Use a strong password with at least 8 characters.
-              </p>
-            </div>
-          </div>
-
-          <div className="form-group">
-            <label>Current Password</label>
-            <input
-              className="input"
-              type="password"
-              value={passwordForm.currentPassword}
-              onChange={(event) =>
-                setPasswordForm({
-                  ...passwordForm,
-                  currentPassword: event.target.value
-                })
-              }
-              required
-            />
-          </div>
-
-          <div
-            className="form-group"
-            style={{ marginTop: 14 }}
-          >
-            <label>New Password</label>
-            <input
-              className="input"
-              type="password"
-              value={passwordForm.newPassword}
-              onChange={(event) =>
-                setPasswordForm({
-                  ...passwordForm,
-                  newPassword: event.target.value
-                })
-              }
-              minLength={8}
-              required
-            />
-          </div>
-
-          <div
-            className="form-group"
-            style={{ marginTop: 14 }}
-          >
-            <label>Confirm New Password</label>
-            <input
-              className="input"
-              type="password"
-              value={passwordForm.confirmPassword}
-              onChange={(event) =>
-                setPasswordForm({
-                  ...passwordForm,
-                  confirmPassword: event.target.value
-                })
-              }
-              minLength={8}
-              required
-            />
-          </div>
-
-          <button
-            className="btn btn-primary"
-            style={{ marginTop: 20 }}
-            disabled={savingPassword}
-          >
-            <LockKeyhole size={17} />
-            {savingPassword
-              ? 'Changing Password...'
-              : 'Change Password'}
-          </button>
+        <form className="card settings-card" onSubmit={changePassword}>
+          <div className="settings-card-heading"><LockKeyhole size={24} /><div><h2>Change Password</h2><p>Use a strong password with at least 8 characters.</p></div></div>
+          <label className="form-group"><span>Current Password</span><input className="input" type="password" value={passwordForm.currentPassword} onChange={(event) => setPasswordForm((current) => ({ ...current, currentPassword: event.target.value }))} required /></label>
+          <label className="form-group"><span>New Password</span><input className="input" type="password" minLength={8} value={passwordForm.newPassword} onChange={(event) => setPasswordForm((current) => ({ ...current, newPassword: event.target.value }))} required /></label>
+          <label className="form-group"><span>Confirm New Password</span><input className="input" type="password" minLength={8} value={passwordForm.confirmPassword} onChange={(event) => setPasswordForm((current) => ({ ...current, confirmPassword: event.target.value }))} required /></label>
+          <button className="btn btn-primary" disabled={savingPassword}><LockKeyhole size={17} /> {savingPassword ? 'Changing…' : 'Change Password'}</button>
         </form>
 
-        {isAdmin && (
-          <div className="card">
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                marginBottom: 16
-              }}
-            >
-              <Building2 size={24} />
-
-              <div>
-                <h2 style={{ margin: 0 }}>
-                  Company Configuration
-                </h2>
-                <p
-                  className="page-subtitle"
-                  style={{ marginTop: 4 }}
-                >
-                  Company profile, office shifts, holidays and
-                  permission controls.
-                </p>
-              </div>
-            </div>
-
-            <p style={{ color: 'var(--text-muted)' }}>
-              Company-level configuration will only be available to
-              authorised administrators.
-            </p>
-          </div>
-        )}
+        <div className="card settings-card update-settings-card">
+          <div className="settings-card-heading"><DownloadCloud size={24} /><div><h2>Application Updates</h2><p>Future desktop versions can be downloaded and installed from here.</p></div></div>
+          <div className="version-row"><span>Installed Version</span><strong>{version}</strong></div>
+          {updateInfo?.latestVersion && <div className="version-row"><span>Latest Version</span><strong>{updateInfo.latestVersion}</strong></div>}
+          {downloading && <div className="download-progress"><div style={{ width: `${progress || 5}%` }} /><span>{progress === null ? 'Downloading…' : `${progress}%`}</span></div>}
+          <div className="form-actions settings-update-actions"><button className="btn btn-secondary" type="button" onClick={checkUpdates} disabled={checkingUpdate || downloading}><RefreshCw className={checkingUpdate ? 'spin' : ''} size={17} /> {checkingUpdate ? 'Checking…' : 'Check for Updates'}</button>{updateInfo?.updateAvailable && <button className="btn btn-primary" type="button" onClick={installUpdate} disabled={downloading}><DownloadCloud size={17} /> {downloading ? 'Downloading…' : 'Update Now'}</button>}</div>
+        </div>
       </div>
-    </>
+    </div>
   );
 }

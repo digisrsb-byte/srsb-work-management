@@ -11,6 +11,10 @@ import reportRoutes from './reportRoutes.js';
 import leaveRoutes from './leaveRoutes.js';
 import candidateRoutes from './candidateRoutes.js';
 import notificationRoutes from './notificationRoutes.js';
+import invoiceRoutes from './invoiceRoutes.js';
+import attendanceCorrectionRoutes from './attendanceCorrectionRoutes.js';
+import holidayRoutes from './holidayRoutes.js';
+import appUpdateRoutes from './appUpdateRoutes.js';
 
 const router = Router();
 
@@ -26,5 +30,9 @@ router.use('/reports', reportRoutes);
 router.use('/leave', leaveRoutes);
 router.use('/candidates', candidateRoutes);
 router.use('/notifications', notificationRoutes);
+router.use('/invoices', invoiceRoutes);
+router.use('/attendance-corrections', attendanceCorrectionRoutes);
+router.use('/holidays', holidayRoutes);
+router.use('/app-updates', appUpdateRoutes);
 
 export default router;

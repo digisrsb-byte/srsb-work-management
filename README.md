@@ -1,41 +1,17 @@
-# SRSB HRMS Desktop Suite
+# SRSB Work Management
 
-Structured desktop application using Electron, React, Node.js, Express and MySQL.
+Current release: **1.1.0**
 
-## Folder structure
+Start with [README-V1.1.0.md](README-V1.1.0.md) for features, build, deployment, Railway migration and automatic-update instructions.
+
+Quick build on Windows:
 
 ```text
-apps/desktop   Windows desktop shell
-apps/frontend  React user interface
-apps/backend   Node.js API
-database       MySQL schema and migrations
-docs           architecture and change guides
-scripts        startup and installer helpers
-release        generated Windows installer
+Build-SRSB-v1.1.0.bat
 ```
 
-## First setup
+Expected installer:
 
-1. Run `npm install` in the root folder.
-2. Copy `apps/backend/.env.example` to `apps/backend/.env` and enter MySQL details.
-3. Copy `apps/frontend/.env.example` to `apps/frontend/.env`.
-4. Import `database/schema.sql`.
-5. Run `npm --workspace apps/backend run seed`.
-
-## Development
-
-Open three Command Prompt windows:
-
-```bat
-npm run dev:backend
-npm run dev:frontend
-npm run dev:desktop
+```text
+release\SRSB-Work-Management-Setup-1.1.0.exe
 ```
-
-## Build Windows installer
-
-```bat
-npm run build:desktop
-```
-
-The installer will be created in `release`.

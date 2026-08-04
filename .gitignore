@@ -7,3 +7,5 @@ backups/*
 !backups/.gitkeep
 *.backup.js
 *-backup.jsx
+patch/
+*.zip

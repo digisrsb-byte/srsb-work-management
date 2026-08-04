@@ -1,0 +1,672 @@
+{
+  "application": "SRSB Work Management",
+  "version": "1.1.0",
+  "file_count": 133,
+  "files": [
+    {
+      "path": ".github/workflows/release.yml",
+      "size": 790,
+      "sha256": "2fba5ce5789cf24df7e1ec9e9c48cb3c344011023f36cddd17a403ce287a7fac"
+    },
+    {
+      "path": ".gitignore",
+      "size": 106,
+      "sha256": "d150593791b10bd00d0a306339f8bada2d55f6ad06687ace7d28c610c1b656cf"
+    },
+    {
+      "path": "Build-SRSB-v1.1.0.bat",
+      "size": 1298,
+      "sha256": "2d5113404cf42a51a44ce87b8355cf34dd210d4d8f457cd2079ad6c0001bc8a8"
+    },
+    {
+      "path": "Publish-Future-Update.bat",
+      "size": 1249,
+      "sha256": "7939d41ad16c30a9a08601fce7ade56d169e98c8efd130ceb84d8216ffc7bf40"
+    },
+    {
+      "path": "README-V1.1.0.md",
+      "size": 4261,
+      "sha256": "a108fb659910a846f4ff6d06803fb9ed074d78158d5f140ccf9add47423ea772"
+    },
+    {
+      "path": "README.md",
+      "size": 325,
+      "sha256": "7dc2dc53907ddaa0d479483a15b89d93b5db46b770895a620b030c1cc24b1861"
+    },
+    {
+      "path": "VALIDATION-REPORT.txt",
+      "size": 930,
+      "sha256": "efc716972ea1d7c291cb1f6f1c570894b3dec8c1c892e0ecf37ecacf0f6ea1b2"
+    },
+    {
+      "path": "Verify-Deployed-v1.1.0.bat",
+      "size": 272,
+      "sha256": "785f2686733be2869a250e6865815dbf38a60fe2f52df0712e34d9b4fa89765e"
+    },
+    {
+      "path": "Verify-Deployed-v1.1.0.cjs",
+      "size": 3772,
+      "sha256": "2ea18f25c003ee67e5f13ceed7bdbf26bb694c937516a23bba183fb712b296d1"
+    },
+    {
+      "path": "apps/backend/.env.example",
+      "size": 879,
+      "sha256": "42fc6367173e64747f85026f36960514cb87c0a8b6c6649e7cf207bc0530d382"
+    },
+    {
+      "path": "apps/backend/logs/.gitkeep",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "apps/backend/migrations/001_create_notifications.sql",
+      "size": 896,
+      "sha256": "1e09cd4c969c143c24e4b5a9bd2f9a24fbe6f181a761ba66c122ebbd31947a33"
+    },
+    {
+      "path": "apps/backend/migrations/002_add_opening_closed_by.sql",
+      "size": 280,
+      "sha256": "00c7771d0e745332837570b5a5e7064c0dc6bb73bb7a0bc5de8c0449e9802c58"
+    },
+    {
+      "path": "apps/backend/migrations/003_add_password_changed_at.sql",
+      "size": 94,
+      "sha256": "bc610f30aa96db0ccf807730e4d3e1eee17cfe49ebfbc909d35c8d5b2aba754d"
+    },
+    {
+      "path": "apps/backend/migrations/004_create_password_reset_otps.sql",
+      "size": 573,
+      "sha256": "84e08e12d29e1f5735d4b265b2e71a38b81bad3f5f96e5d8a84a70c0c78b36f1"
+    },
+    {
+      "path": "apps/backend/migrations/005_create_password_reset_requests.sql",
+      "size": 559,
+      "sha256": "1c529a275cc4ee2558f685db6c19ebac127880a341b52235fa42df02754a2a4b"
+    },
+    {
+      "path": "apps/backend/migrations/006_rbac_recovery_fields.sql",
+      "size": 185,
+      "sha256": "0547f46bd4b8ca28f45761064be72db6a9bd3ff7dc0b95db6877f2357c300d69"
+    },
+    {
+      "path": "apps/backend/package.json",
+      "size": 695,
+      "sha256": "b648cd9f6ebffb4f06d832dce6ef6e8e8523e209f6d6d118f6cedd9ee05dfc8b"
+    },
+    {
+      "path": "apps/backend/src/app.js",
+      "size": 1429,
+      "sha256": "a734c4c28fcc7911238b2395f1e486555066b6c501cca4b8edc5b1b28b274c00"
+    },
+    {
+      "path": "apps/backend/src/config/database.js",
+      "size": 497,
+      "sha256": "0c1ec48d11b5904031ad0ba4d9859fc98297e0fca52b16621b2623db55d90724"
+    },
+    {
+      "path": "apps/backend/src/config/env.js",
+      "size": 1959,
+      "sha256": "0395cb441060af90a28da6fedb9e21051e974ec85b4f9aa26b4201a46aa3f93b"
+    },
+    {
+      "path": "apps/backend/src/controllers/appUpdateController.js",
+      "size": 5761,
+      "sha256": "aeeb39295c5c73dd9900665ee373802b2f61b497e7757d199cd8882a33d256f5"
+    },
+    {
+      "path": "apps/backend/src/controllers/attendanceController.js",
+      "size": 7100,
+      "sha256": "61907a6b5c1dfd56b842a6b570e03489d006aa1b77b16c03c1d0726b8e04a471"
+    },
+    {
+      "path": "apps/backend/src/controllers/attendanceCorrectionController.js",
+      "size": 12145,
+      "sha256": "ca57181d5115249c736aaea38dc0da472578da3d92a6f769ca79a4201e5aee17"
+    },
+    {
+      "path": "apps/backend/src/controllers/authController.js",
+      "size": 406,
+      "sha256": "0b4b1b78459c9022ab544706e241eab107f7bbf20ed222b5d704169c0ffeb83d"
+    },
+    {
+      "path": "apps/backend/src/controllers/candidateController.js",
+      "size": 16046,
+      "sha256": "4bb348af9279ac166334df4feb2ce65abfa997a7fb8bbba9a55a6a6c728170a0"
+    },
+    {
+      "path": "apps/backend/src/controllers/clientController.js",
+      "size": 8740,
+      "sha256": "de6c2311752992c700f24a2f9b97af32f5280ac876051df9b44e38f5c2668125"
+    },
+    {
+      "path": "apps/backend/src/controllers/dashboardController.js",
+      "size": 3868,
+      "sha256": "9f94d810ee2f338f22cebda522549df3bd12dd8ff70dd9c0365fb1be0f650f96"
+    },
+    {
+      "path": "apps/backend/src/controllers/employeeController.js",
+      "size": 12312,
+      "sha256": "cda94c0b516c02b22e29e2382d8c0cc985b3416f2d0dc10c5694937c9144df3d"
+    },
+    {
+      "path": "apps/backend/src/controllers/holidayController.js",
+      "size": 7091,
+      "sha256": "3c953f6300874abb38dc8f8cfac6d15552c25a0f6a637c6dbbdea6e28d08f0c9"
+    },
+    {
+      "path": "apps/backend/src/controllers/invoiceController.js",
+      "size": 13483,
+      "sha256": "3dcb77cece36dd83655285b6665e1504b2e053176da0d7d6ab05f61114a0f6b5"
+    },
+    {
+      "path": "apps/backend/src/controllers/leaveController.js",
+      "size": 12364,
+      "sha256": "5fbddfc1f9558b4097bbcf6c7e3ff93583a7bce1e8451541fd0d9bfbae953c45"
+    },
+    {
+      "path": "apps/backend/src/controllers/notificationController.js",
+      "size": 2277,
+      "sha256": "1b7e9107b51664ee507e7bdb082a152690e7e23746c9482a75eaf1f7ae913f39"
+    },
+    {
+      "path": "apps/backend/src/controllers/openingController.js",
+      "size": 15900,
+      "sha256": "0059de5d5b01508fa35b74a9ce7e665b3cdb0eced2a4904d9aedd01a12e3308a"
+    },
+    {
+      "path": "apps/backend/src/controllers/passwordResetController.js",
+      "size": 6554,
+      "sha256": "63ff8298f794036ace65d9e37eb4c1eedc8d6a83f9bf036474fdd7bbedb5e6e9"
+    },
+    {
+      "path": "apps/backend/src/controllers/profileController.js",
+      "size": 6226,
+      "sha256": "2161fb405fe367739129db18e4a0cd9c8fcd334ab911f216f9f6d809ae9ca809"
+    },
+    {
+      "path": "apps/backend/src/controllers/reportController.js",
+      "size": 18989,
+      "sha256": "6685682151fc025ba2fc894894a6aae2d745c351fcaeb57afd412cfcf1c1a139"
+    },
+    {
+      "path": "apps/backend/src/controllers/taskController.js",
+      "size": 7950,
+      "sha256": "916716f7b063cbc495fc09de556dc1ac8b4810779418da004c43abca6d82d03f"
+    },
+    {
+      "path": "apps/backend/src/middleware/auth.js",
+      "size": 754,
+      "sha256": "1a75453fd88786fe0af82ccbf3b62dda8a6f663ef9454ac7e18abcbb6d6b506c"
+    },
+    {
+      "path": "apps/backend/src/middleware/errorHandler.js",
+      "size": 797,
+      "sha256": "b8603e5bac8650ea4b46ed1f2aa37a2972dcdd1ae7fd90ae1e6980e94d59ccf0"
+    },
+    {
+      "path": "apps/backend/src/middleware/validate.js",
+      "size": 324,
+      "sha256": "329d684000d845ace195171b75af7588485cc9fc1446067ae8f989f09e781682"
+    },
+    {
+      "path": "apps/backend/src/migrateV110.js",
+      "size": 446,
+      "sha256": "245e02895fff25b0d9ce86c02ff4ad4f7625e67fe2cf330a0a5c65be7970dbcc"
+    },
+    {
+      "path": "apps/backend/src/migrations/ensureV110Schema.js",
+      "size": 8363,
+      "sha256": "616d9f5387e483ab3185e9b2fd1b62e05ec4df62b96b29ad5d440b570cc3a20c"
+    },
+    {
+      "path": "apps/backend/src/routes/appUpdateRoutes.js",
+      "size": 644,
+      "sha256": "c7a8963a94c1f79da88f861386766d987334ad83d1696fc4b19f3fee8683bef1"
+    },
+    {
+      "path": "apps/backend/src/routes/attendanceCorrectionRoutes.js",
+      "size": 760,
+      "sha256": "f1afd398fe2c59a38270e7ebcac9f241890b37e80656157608274b6bd1b6bb4c"
+    },
+    {
+      "path": "apps/backend/src/routes/attendanceRoutes.js",
+      "size": 539,
+      "sha256": "3edd811c261e8edfeeb71da1ac84e5d664354ffbb08590d39fcd22608e8de864"
+    },
+    {
+      "path": "apps/backend/src/routes/authRoutes.js",
+      "size": 1414,
+      "sha256": "fa3cd0c70697476ed2ca10b7fa7b8aafb28f56457dae5a9d7a50d48507208232"
+    },
+    {
+      "path": "apps/backend/src/routes/candidateRoutes.js",
+      "size": 1550,
+      "sha256": "970ca67fee563d98c34d96585987c03cba7570a038f0ac18a18e6e669cc8077f"
+    },
+    {
+      "path": "apps/backend/src/routes/clientRoutes.js",
+      "size": 1314,
+      "sha256": "edc28f8ff02931bbc66f918ed18b20eeaf686f41467c0a1fd66977caf6d9fc02"
+    },
+    {
+      "path": "apps/backend/src/routes/dashboardRoutes.js",
+      "size": 400,
+      "sha256": "99a5269c6df9726d445d4a2698586d8a4887584f1737b6720df95e4367d99f1d"
+    },
+    {
+      "path": "apps/backend/src/routes/employeeRoutes.js",
+      "size": 2060,
+      "sha256": "65f91f2824232373672a9eee73a59c913b1d3305542104f85c4ee4d640dab53c"
+    },
+    {
+      "path": "apps/backend/src/routes/holidayRoutes.js",
+      "size": 530,
+      "sha256": "2a8215c4601fcc03ddb85c3f0754f47f227ea2dda098bf2922cf7a77c7e3e54c"
+    },
+    {
+      "path": "apps/backend/src/routes/index.js",
+      "size": 1561,
+      "sha256": "940e35a65752c10899d3e0aa9bb9b982a885318b5c6b1a03b385e0c022f9e3bf"
+    },
+    {
+      "path": "apps/backend/src/routes/invoiceRoutes.js",
+      "size": 892,
+      "sha256": "bdffca321eb9d7f4029a8ced9a25f1000dd0b558c8d0996becb574f06938f8c9"
+    },
+    {
+      "path": "apps/backend/src/routes/leaveRoutes.js",
+      "size": 720,
+      "sha256": "cc920f7cec854f774470453ec668bb29b62248a52f8bc5d9b27f213a73293f23"
+    },
+    {
+      "path": "apps/backend/src/routes/notificationRoutes.js",
+      "size": 522,
+      "sha256": "e707b2968c7b9cde257c32fd042879bd1b13e8c121f0c1ff626100603666e456"
+    },
+    {
+      "path": "apps/backend/src/routes/openingRoutes.js",
+      "size": 2197,
+      "sha256": "d717eece4bdc904fdcc14eec369f64c4c183226f89064abe2573ce8c9dd1fedb"
+    },
+    {
+      "path": "apps/backend/src/routes/profileRoutes.js",
+      "size": 3263,
+      "sha256": "2618a66a2f1b745f438fad50e41e6dee62c8fd4f4eff6e42d0d993714ed08f51"
+    },
+    {
+      "path": "apps/backend/src/routes/reportRoutes.js",
+      "size": 718,
+      "sha256": "2386bc3d450fec6755fe1a50c3a978bbb944731fe07fd0151d8bee1ec6652c66"
+    },
+    {
+      "path": "apps/backend/src/routes/taskRoutes.js",
+      "size": 601,
+      "sha256": "73ca97833e28fb8075686b1cd03a69fc358ad7521600623d89618dc45ace6671"
+    },
+    {
+      "path": "apps/backend/src/runNotificationMigration.js",
+      "size": 973,
+      "sha256": "9e916716c2919c81ed0ce886af1c168cd4fae40bcdcb134dd251a367650a92a3"
+    },
+    {
+      "path": "apps/backend/src/seed.js",
+      "size": 2217,
+      "sha256": "63e453f7a508b7e1a669de7bb444c9a9213cec86904e491af2d28da162e8248b"
+    },
+    {
+      "path": "apps/backend/src/seedDemo.js",
+      "size": 28206,
+      "sha256": "4d8a58fee2a8f6030a44e4b301f171206618da4408e4418493f84d4bffe9fbd1"
+    },
+    {
+      "path": "apps/backend/src/server.js",
+      "size": 2775,
+      "sha256": "a96987de29c9f1d4a31a7794f95dcce8ec7a9d7525949afee4e21efdec4df661"
+    },
+    {
+      "path": "apps/backend/src/services/authService.js",
+      "size": 2434,
+      "sha256": "e613be266e45eb766f58b5b48a6401fba9b40e66794d9a92bb05b36df4cf0048"
+    },
+    {
+      "path": "apps/backend/src/utils/AppError.js",
+      "size": 221,
+      "sha256": "838dbb78b521754a0d6b8143942b9f49fc3ad0810eaded5eb4766ddba70da6fa"
+    },
+    {
+      "path": "apps/backend/src/utils/asyncHandler.js",
+      "size": 112,
+      "sha256": "9df607bf67b612fb1e30f06bea3c7c3cbbc3a60f4f982ce2ebe21721a1da5b4a"
+    },
+    {
+      "path": "apps/backend/src/utils/attendanceScheduler.js",
+      "size": 9122,
+      "sha256": "7005dd6a91e51d4c7d8f0aba77782a4011a73931f048e6e6a001494fddf91e6e"
+    },
+    {
+      "path": "apps/backend/src/utils/mailer.js",
+      "size": 2350,
+      "sha256": "27f27280d6ed1fb5a101acfc6e5f370e1ff746f4c57e54272b032dd66ba9935e"
+    },
+    {
+      "path": "apps/backend/uploads/.gitkeep",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "apps/desktop/app-icon.ico",
+      "size": 47410,
+      "sha256": "d795dae90520c3722339dcc4dd79a7032aabd1d1279b86b4fc28f60ee2f60189"
+    },
+    {
+      "path": "apps/desktop/app-icon.png",
+      "size": 52532,
+      "sha256": "43f9e471c4a767f8d619b46bf57ea56a41745c7059d94b9325bde2f2a28c52a0"
+    },
+    {
+      "path": "apps/desktop/icon.png",
+      "size": 58505,
+      "sha256": "0e5a1ffd726cb2492cf57a9b2e72d195b366640a4a4b9a876f8f766d2b977461"
+    },
+    {
+      "path": "apps/desktop/main.cjs",
+      "size": 7473,
+      "sha256": "8ff82e1d624f10a574761b25f2fa2f810509eabc85238bf37004a79957f00444"
+    },
+    {
+      "path": "apps/desktop/package.json",
+      "size": 1432,
+      "sha256": "a0df30b9c83a484f3e9b6dd65fd268770feaacde379ebc2109937b40f9180fd7"
+    },
+    {
+      "path": "apps/desktop/preload.cjs",
+      "size": 921,
+      "sha256": "3479b5cbf2058dde712af704928c1e3d83a108f7f8e81a206bb83bb7b6157f2e"
+    },
+    {
+      "path": "apps/frontend/.env.example",
+      "size": 39,
+      "sha256": "756e26b073ad7ed9da6a444d262f61ef222183cd19d57d1cda533c8af76544f2"
+    },
+    {
+      "path": "apps/frontend/.env.production",
+      "size": 72,
+      "sha256": "3dfdf1d30edc40bf34934eb58a778a5194a774955b08fa66cd98cbaa840fb120"
+    },
+    {
+      "path": "apps/frontend/index.html",
+      "size": 420,
+      "sha256": "b2f9dabe577930441c49aefb80c4771fe45747cc3cc2984aaf7b76b3899ca191"
+    },
+    {
+      "path": "apps/frontend/package.json",
+      "size": 544,
+      "sha256": "d8aea8b76d55a9886dc67a5625d71ad068e41e562d8e92054e16eb9bbc89f178"
+    },
+    {
+      "path": "apps/frontend/public/app-icon.png",
+      "size": 52532,
+      "sha256": "43f9e471c4a767f8d619b46bf57ea56a41745c7059d94b9325bde2f2a28c52a0"
+    },
+    {
+      "path": "apps/frontend/public/company-logo.png",
+      "size": 56962,
+      "sha256": "3ccecc4a89dbbf81ac643889752247c1abdef24b92a1967a5a58f7bce0f1f2b7"
+    },
+    {
+      "path": "apps/frontend/src/App.jsx",
+      "size": 106,
+      "sha256": "6dea74f1ccd5a155719a1b500cc8051e790ebffa477ffd5517ed2ada62f52e3d"
+    },
+    {
+      "path": "apps/frontend/src/AppRoutes.jsx",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "apps/frontend/src/components/BrandLogo.jsx",
+      "size": 341,
+      "sha256": "200065039fc64b50238f38f5d5a4fcd71cc2f27a4c829411e41212cacef83ec8"
+    },
+    {
+      "path": "apps/frontend/src/components/ProtectedRoute.jsx",
+      "size": 473,
+      "sha256": "107a9f6c547f3298d4304c42f02bee1f1b611f73d81c621286f165cb22320f5f"
+    },
+    {
+      "path": "apps/frontend/src/components/StatCard.jsx",
+      "size": 981,
+      "sha256": "527c1407583b9b472f2504b9f1e4b9ffb1dfc91807f0d0c9ac8171cbc9ba0029"
+    },
+    {
+      "path": "apps/frontend/src/components/UpdateBanner.jsx",
+      "size": 2178,
+      "sha256": "6400ece57e85d28306c8b89661711be232673096cf8c147d2b16ae72c7b1ba27"
+    },
+    {
+      "path": "apps/frontend/src/config/navigation.js",
+      "size": 2508,
+      "sha256": "ee7bde170437ad455fc4a45c308e17a4e77f7c5879a63b6dee72126ebc0e3abc"
+    },
+    {
+      "path": "apps/frontend/src/context/AuthContext.jsx",
+      "size": 1460,
+      "sha256": "b96ab6a7f52f33898475320d0a044448eb38beb431c1d22a9bebda5ce0d1aece"
+    },
+    {
+      "path": "apps/frontend/src/hooks/useDebouncedValue.js",
+      "size": 414,
+      "sha256": "5807e722ddcfeefb70bb13de48bd7df18d95952e4262dad370a2015c9dd53a09"
+    },
+    {
+      "path": "apps/frontend/src/layouts/AppLayout.jsx",
+      "size": 15374,
+      "sha256": "a149b446472d2640d0fd07dc7a097fa320cbfa97f1cb7d016280e8d1c577156d"
+    },
+    {
+      "path": "apps/frontend/src/main.jsx",
+      "size": 397,
+      "sha256": "d833b835c2ad5b7ccc96f94a41ab89cdde541712f06fc88cf220e957000fcc7a"
+    },
+    {
+      "path": "apps/frontend/src/pages/Login.jsx",
+      "size": 12152,
+      "sha256": "b1066c10110e235c147143bb5d8b0dd992398b7cb04f73533fac48b6db2b8d91"
+    },
+    {
+      "path": "apps/frontend/src/pages/PlaceholderPage.jsx",
+      "size": 511,
+      "sha256": "4e90bf671f3eb6a42e24a097c90fe39aa6a2e5b284be7defa99311a154ab94a2"
+    },
+    {
+      "path": "apps/frontend/src/pages/Settings.jsx",
+      "size": 8232,
+      "sha256": "6e0aebaa0fc865164cc6ae925df3986bd5c7b000676fa3328c765c3706c59a99"
+    },
+    {
+      "path": "apps/frontend/src/pages/Tasks.jsx",
+      "size": 25044,
+      "sha256": "f4015e14c2c61f9f46d7f36211a2ecc212aae41f0fd5d9718ab70ad637708331"
+    },
+    {
+      "path": "apps/frontend/src/pages/admin/AdminDashboard.jsx",
+      "size": 13479,
+      "sha256": "73fae4aa0a0509e6cd745d2db6b03bb497af9fdd0dc64eae2e0d93880e869235"
+    },
+    {
+      "path": "apps/frontend/src/pages/admin/AttendanceCorrections.jsx",
+      "size": 9586,
+      "sha256": "707868b728463ebc0a786f4c8bc245115dbdb3bfeff0af33c6c368700c49a35e"
+    },
+    {
+      "path": "apps/frontend/src/pages/admin/AttendanceManagement.jsx",
+      "size": 12196,
+      "sha256": "3f116bcb06aff6a362064ed70fcc08b4d16d27d516c5780c9a2c734cf5ac3694"
+    },
+    {
+      "path": "apps/frontend/src/pages/admin/Candidates.jsx",
+      "size": 20067,
+      "sha256": "781aa5d8ea19c27609a55dfb47ec568bae47cf28127a77877889fedc0582e468"
+    },
+    {
+      "path": "apps/frontend/src/pages/admin/Clients.jsx",
+      "size": 11103,
+      "sha256": "f75a33e7080892576586e159f6ff0647a7c259a06b21996dbfd666548bb68893"
+    },
+    {
+      "path": "apps/frontend/src/pages/admin/Employees.jsx",
+      "size": 12127,
+      "sha256": "a81ffbfbc52df5f492fc9c3a4e4f67cd51a6205c762261245cb12dda4237c7a7"
+    },
+    {
+      "path": "apps/frontend/src/pages/admin/Holidays.jsx",
+      "size": 7403,
+      "sha256": "35e273aa7948b5b701df6127a54425016c85621fc2f3fdf7b5347cb08e37e4e2"
+    },
+    {
+      "path": "apps/frontend/src/pages/admin/Invoices.jsx",
+      "size": 17731,
+      "sha256": "a766e621de26778ff7eb9b905c98e050093c745ad8c33ec36cd7934dfff42935"
+    },
+    {
+      "path": "apps/frontend/src/pages/admin/Openings.jsx",
+      "size": 29464,
+      "sha256": "daf44a5d2e306d1e92b49cdb296925d15653c4360d475d62f0cdb610cc777d19"
+    },
+    {
+      "path": "apps/frontend/src/pages/admin/PasswordManagement.jsx",
+      "size": 5654,
+      "sha256": "32b1aa0c8af375a783068a0fb77494ababac648f73e657669dab39bbf19dd0df"
+    },
+    {
+      "path": "apps/frontend/src/pages/admin/Reports.jsx",
+      "size": 28637,
+      "sha256": "666b0f8e696175cb144ac675ecb531e78f1d7b6bda1a19ee4c2a60ca71198a0f"
+    },
+    {
+      "path": "apps/frontend/src/pages/admin/RequestsApprovals.jsx",
+      "size": 18391,
+      "sha256": "69ebd3541c056f01dc330d19d7110081c1cf07057e0f6c298d4edded070bed87"
+    },
+    {
+      "path": "apps/frontend/src/pages/employee/EmployeeDashboard.jsx",
+      "size": 10530,
+      "sha256": "76dee04921a0c816779865e41241b7af8c0518ad70a68a455c03df305dde5381"
+    },
+    {
+      "path": "apps/frontend/src/pages/employee/MyAttendance.jsx",
+      "size": 13449,
+      "sha256": "a029e42843e690c9333e403dd9c0933fb674e883432c5acb79b30d327e6b5e65"
+    },
+    {
+      "path": "apps/frontend/src/pages/employee/MyAttendanceCorrections.jsx",
+      "size": 5622,
+      "sha256": "49b213216e438e99bedb57110c1e966b25be348765205b3a4af1bb003b502cda"
+    },
+    {
+      "path": "apps/frontend/src/pages/employee/MyLeave.jsx",
+      "size": 14025,
+      "sha256": "892034ab33e0b27e0239e702e1b5ea622dde2cf30da8af93ac64ce0262a6d2f3"
+    },
+    {
+      "path": "apps/frontend/src/pages/employee/MyProfile.jsx",
+      "size": 21371,
+      "sha256": "57b28e2b434ea53aac40c85075f34f2b4ec41c61cddaefa61eebb41cef3931ec"
+    },
+    {
+      "path": "apps/frontend/src/routes/AppRoutes.jsx",
+      "size": 5025,
+      "sha256": "44b0841d66e2aa0a3632d548e9ec21a0741c878f93bed0562962bc2bdd7ba94b"
+    },
+    {
+      "path": "apps/frontend/src/services/api.js",
+      "size": 1553,
+      "sha256": "6894cf38bb646a56f3315dd9a2e68530bc32b4dfe2eb77bc58f47127860d8203"
+    },
+    {
+      "path": "apps/frontend/src/styles/global.css",
+      "size": 20567,
+      "sha256": "c14959d6e90e0f146e97ddd688c6ffb2021334ef207573f8f187b0c745588f64"
+    },
+    {
+      "path": "apps/frontend/src/styles/theme.css",
+      "size": 547,
+      "sha256": "2f423bbf4c9549cce4ff3250b970aa5e0c80d05bf334022dccef40f2463b0825"
+    },
+    {
+      "path": "apps/frontend/vite.config.js",
+      "size": 185,
+      "sha256": "9ea00d150767065697e0087e09e0d66983e60b1f382e65d27faaf55b95509141"
+    },
+    {
+      "path": "database/migrations/001_initial_schema.sql",
+      "size": 121,
+      "sha256": "aa5ebe7f08ab62f933bcd8d4f1d1e1dbc76717c3ac635c70c4b4470e1d744165"
+    },
+    {
+      "path": "database/migrations/002_example_add_payroll.sql",
+      "size": 307,
+      "sha256": "c6c8dc7b5196938c00982f2652cc59d6460d4baa1083138778244a8be2b4b3f2"
+    },
+    {
+      "path": "database/migrations/003_employee_profile.sql",
+      "size": 4056,
+      "sha256": "ff11db0ba9fa9cf7071f9eeeb96348f96fcda41eefd061dc68f6c664670f58be"
+    },
+    {
+      "path": "database/schema.sql",
+      "size": 15263,
+      "sha256": "9db3e01b20f3c71908595eb5f1daefbbed028f03149a125bdfc411bcfa174b40"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "size": 751,
+      "sha256": "775d2c0ad6bfdb2b67877cce037da8ad4ed23aa25f1392ee913efb121e3e3628"
+    },
+    {
+      "path": "docs/BUILD_PHASES.md",
+      "size": 497,
+      "sha256": "ff158b2ade856efab77459abfd9a92bd3e650b4d5443e019da9e6069e7a271cf"
+    },
+    {
+      "path": "docs/DEPLOYMENT.md",
+      "size": 2467,
+      "sha256": "b8ff7288c97bcfb7018ac4b7bacb8dde455ff782b5c6100b6bd6617d3868eef2"
+    },
+    {
+      "path": "docs/FUTURE_CHANGES.md",
+      "size": 1203,
+      "sha256": "d7efcc06bd0963b09ab5ed991799fd76b150f40e768a06741c66017a9944afa1"
+    },
+    {
+      "path": "package-lock.json",
+      "size": 314732,
+      "sha256": "6a23696daf0e562aa643e0299d26d2f892c64755dd3a278f62bf4fbf97342f42"
+    },
+    {
+      "path": "package.json",
+      "size": 919,
+      "sha256": "5a8498a5ec7c1b50bf7053f60a237fae90a0a812bffde3e35859956f6f081fef"
+    },
+    {
+      "path": "scripts/build-installer.bat",
+      "size": 43,
+      "sha256": "e3f3d80bedf12bd8fd7be92518783f845a9f9a0e051ae55623d92a5a7619cde9"
+    },
+    {
+      "path": "scripts/set-version.cjs",
+      "size": 1627,
+      "sha256": "cb7d7eb680ef716a83b576295c9ffe78fdf6d4e5741f3f8af84420ee090a836c"
+    },
+    {
+      "path": "scripts/start-development.bat",
+      "size": 152,
+      "sha256": "dc6cc80dd0cc0bbda14ccbc56e028d12df110ad6511a2a7254309f41de776128"
+    },
+    {
+      "path": "scripts/validate-backend.cjs",
+      "size": 964,
+      "sha256": "99e0067074c729a6dd1dc06fc44b2d0fe76e2ea7513e36cc0498dc4ba8034266"
+    }
+  ]
+}

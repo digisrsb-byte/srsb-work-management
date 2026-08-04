@@ -3,107 +3,111 @@ import { pool } from '../config/database.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
 
-export const listEmployees = asyncHandler(async (req, res) => {
-  const {
-    search,
-    status,
-    role
-  } = req.query;
+const allowedEmployeeStatuses = ['ACTIVE', 'INACTIVE', 'RESIGNED'];
+const allowedEmployeeRoles = ['ADMIN', 'HR', 'MANAGER', 'RECRUITER', 'EMPLOYEE'];
 
-  const conditions = [];
+async function validateDepartment(departmentId) {
+  const id = Number(departmentId);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new AppError('Select a valid department.', 400);
+  }
+
+  const [[department]] = await pool.query(
+    `SELECT id, name
+     FROM departments
+     WHERE id = ?
+       AND name IN ('Technical', 'HR')
+     LIMIT 1`,
+    [id]
+  );
+
+  if (!department) {
+    throw new AppError('Department must be Technical or HR.', 400);
+  }
+
+  return department;
+}
+
+async function validateManager(managerId, employeeId = null) {
+  if (!managerId) return null;
+
+  const id = Number(managerId);
+  if (!Number.isInteger(id) || id <= 0 || Number(employeeId) === id) {
+    throw new AppError('Select a valid reporting manager.', 400);
+  }
+
+  const [[manager]] = await pool.query(
+    `SELECT id
+     FROM employees
+     WHERE id = ?
+       AND status = 'ACTIVE'
+       AND COALESCE(account_type, 'EMPLOYEE') = 'EMPLOYEE'
+     LIMIT 1`,
+    [id]
+  );
+
+  if (!manager) throw new AppError('Reporting manager was not found.', 400);
+  return id;
+}
+
+export const getEmployeeFormMeta = asyncHandler(async (_req, res) => {
+  const [departments] = await pool.query(
+    `SELECT id, name
+     FROM departments
+     WHERE name IN ('Technical', 'HR')
+     ORDER BY FIELD(name, 'Technical', 'HR')`
+  );
+
+  const [managers] = await pool.query(
+    `SELECT id, employee_id, full_name, designation, role
+     FROM employees
+     WHERE status = 'ACTIVE'
+       AND COALESCE(account_type, 'EMPLOYEE') = 'EMPLOYEE'
+       AND role IN ('SUPER_ADMIN','ADMIN','HR','MANAGER')
+     ORDER BY full_name`
+  );
+
+  res.json({ success: true, data: { departments, managers } });
+});
+
+export const listEmployees = asyncHandler(async (req, res) => {
+  const { search, status, role } = req.query;
+  const conditions = ["COALESCE(e.account_type, 'EMPLOYEE') = 'EMPLOYEE'"];
   const values = [];
 
-  if (req.user.role === 'SUPER_ADMIN') {
-    conditions.push(
-      "COALESCE(e.account_type, 'EMPLOYEE') = 'EMPLOYEE'"
-    );
-  } else if (req.user.role === 'ADMIN') {
-    conditions.push(
-      "COALESCE(e.account_type, 'EMPLOYEE') = 'EMPLOYEE'"
-    );
-    conditions.push("e.role <> 'SUPER_ADMIN'");
-  } else {
-    conditions.push(
-      "COALESCE(e.account_type, 'EMPLOYEE') = 'EMPLOYEE'"
-    );
-    conditions.push(
-      "e.role NOT IN ('SUPER_ADMIN','ADMIN')"
-    );
+  if (req.user.role === 'ADMIN') conditions.push("e.role <> 'SUPER_ADMIN'");
+  if (!['SUPER_ADMIN', 'ADMIN'].includes(req.user.role)) {
+    conditions.push("e.role NOT IN ('SUPER_ADMIN','ADMIN')");
   }
 
   if (status) {
-    if (!['ACTIVE', 'INACTIVE'].includes(status)) {
-      throw new AppError('Invalid employee status.', 400);
-    }
-
+    if (!allowedEmployeeStatuses.includes(status)) throw new AppError('Invalid employee status.', 400);
     conditions.push('e.status = ?');
     values.push(status);
   }
 
   if (role) {
-    const allowedRoles = [
-      'ADMIN',
-      'HR',
-      'MANAGER',
-      'RECRUITER',
-      'EMPLOYEE'
-    ];
-
-    if (!allowedRoles.includes(role)) {
-      throw new AppError('Invalid employee role.', 400);
-    }
-
+    if (!allowedEmployeeRoles.includes(role)) throw new AppError('Invalid employee role.', 400);
     conditions.push('e.role = ?');
     values.push(role);
   }
 
-  const keyword = String(search || '').trim();
-
+  const keyword = String(search || '').trim().toLowerCase();
   if (keyword) {
-    conditions.push(
-      `LOWER(CONCAT_WS(
-         ' ',
-         e.employee_id,
-         e.username,
-         e.full_name,
-         e.email,
-         e.phone,
-         e.role,
-         e.designation,
-         d.name,
-         e.status
-       )) LIKE ?`
-    );
-    values.push(`%${keyword.toLowerCase()}%`);
+    conditions.push(`LOWER(CONCAT_WS(' ', e.employee_id, e.username, e.full_name, e.email,
+      e.phone, e.role, e.designation, d.name, manager.full_name, e.status)) LIKE ?`);
+    values.push(`%${keyword}%`);
   }
 
-  const whereClause = conditions.length
-    ? `WHERE ${conditions.join(' AND ')}`
-    : '';
-
   const [rows] = await pool.query(
-    `SELECT
-       e.id,
-       e.employee_id,
-       e.username,
-       e.full_name,
-       e.email,
-       e.recovery_email,
-       e.phone,
-       e.date_of_birth,
-       e.role,
-       e.account_type,
-       e.designation,
-       e.status,
-       e.joining_date,
-       e.department_id,
-       e.password_changed_at,
-       e.must_change_password,
-       d.name AS department
+    `SELECT e.id, e.employee_id, e.username, e.full_name, e.email, e.recovery_email,
+       e.phone, e.date_of_birth, e.role, e.account_type, e.designation, e.status,
+       e.joining_date, e.department_id, e.manager_id, e.password_changed_at,
+       e.must_change_password, d.name AS department, manager.full_name AS manager_name
      FROM employees e
-     LEFT JOIN departments d
-       ON d.id = e.department_id
-     ${whereClause}
+     LEFT JOIN departments d ON d.id = e.department_id
+     LEFT JOIN employees manager ON manager.id = e.manager_id
+     WHERE ${conditions.join(' AND ')}
      ORDER BY e.created_at DESC
      LIMIT 1000`,
     values
@@ -112,167 +116,96 @@ export const listEmployees = asyncHandler(async (req, res) => {
   res.json({
     success: true,
     data: rows,
-    meta: {
-      count: rows.length,
-      search: keyword || null,
-      status: status || null,
-      role: role || null
-    }
+    meta: { count: rows.length, search: keyword || null, status: status || null, role: role || null }
   });
 });
 
 export const createEmployee = asyncHandler(async (req, res) => {
   const employeeId = req.body.employeeId?.trim() || null;
   const username = req.body.username?.trim() || null;
-  const fullName = req.body.fullName.trim();
+  const fullName = req.body.fullName?.trim();
   const email = req.body.email?.trim() || null;
   const recoveryEmail = req.body.recoveryEmail?.trim() || null;
   const phone = req.body.phone?.trim() || null;
   const dateOfBirth = req.body.dateOfBirth || null;
-  const password = req.body.password;
+  const password = String(req.body.password || '');
   const role = req.body.role || 'EMPLOYEE';
+  const designation = req.body.designation?.trim();
+  const joiningDate = req.body.joiningDate || null;
 
-  if (req.user.role !== 'SUPER_ADMIN' && ['SUPER_ADMIN', 'ADMIN'].includes(role)) {
-    throw new AppError('Only Super Admin can create Admin or Super Admin accounts.', 403);
+  if (!employeeId && !username) throw new AppError('Employee ID or username is required.', 400);
+  if (!fullName) throw new AppError('Full name is required.', 400);
+  if (!designation) throw new AppError('Designation is required.', 400);
+  if (password.length < 8) throw new AppError('Password must contain at least 8 characters.', 400);
+  if (!allowedEmployeeRoles.includes(role)) throw new AppError('Invalid employee role.', 400);
+  if (req.user.role !== 'SUPER_ADMIN' && role === 'ADMIN') {
+    throw new AppError('Only Head Admin can create an Admin account.', 403);
   }
-  if (!employeeId && !username) {
-    throw new AppError('Employee ID or username is required.', 400);
-  }
-  const designation =
-    req.body.designation?.trim() || null;
-  const departmentId =
-    req.body.departmentId || null;
+
+  const department = await validateDepartment(req.body.departmentId);
+  const managerId = await validateManager(req.body.managerId);
 
   const [existing] = await pool.query(
-    `SELECT id
-     FROM employees
+    `SELECT id FROM employees
      WHERE (? IS NOT NULL AND employee_id = ?)
         OR (? IS NOT NULL AND username = ?)
         OR (? IS NOT NULL AND email = ?)`,
     [employeeId, employeeId, username, username, email, email]
   );
+  if (existing.length) throw new AppError('Employee ID, username or email already exists.', 409);
 
-  if (existing.length) {
-    throw new AppError(
-      'Employee ID, username or email already exists.',
-      409
-    );
-  }
-
-  const passwordHash = await bcrypt.hash(
-    password,
-    12
-  );
-
+  const passwordHash = await bcrypt.hash(password, 12);
   const [result] = await pool.query(
     `INSERT INTO employees (
-       employee_id,
-       username,
-       full_name,
-       email,
-       recovery_email,
-       phone,
-       date_of_birth,
-       password_hash,
-       role,
-       designation,
-       department_id
-     )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      employeeId,
-      username,
-      fullName,
-      email,
-      recoveryEmail,
-      phone,
-      dateOfBirth,
-      passwordHash,
-      role,
-      designation,
-      departmentId
-    ]
+       employee_id, username, full_name, email, recovery_email, phone, date_of_birth,
+       password_hash, role, designation, department_id, manager_id, joining_date,
+       status, account_type
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 'EMPLOYEE')`,
+    [employeeId, username, fullName, email, recoveryEmail, phone, dateOfBirth,
+      passwordHash, role, designation, department.id, managerId, joiningDate]
   );
 
-  res.status(201).json({
-    success: true,
-    message: 'Employee created successfully.',
-    data: {
-      id: result.insertId
-    }
-  });
+  res.status(201).json({ success: true, message: 'Employee created successfully.', data: { id: result.insertId } });
 });
 
-export const updateEmployee = asyncHandler(
-  async (req, res) => {
-    const id = Number(req.params.id);
+export const updateEmployee = asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) throw new AppError('Invalid employee ID.', 400);
 
-    if (!Number.isInteger(id) || id <= 0) {
-      throw new AppError(
-        'Invalid employee ID.',
-        400
-      );
-    }
+  const [[target]] = await pool.query(
+    `SELECT id, role FROM employees WHERE id = ? LIMIT 1`,
+    [id]
+  );
+  if (!target) throw new AppError('Employee not found.', 404);
 
-    const [targets] = await pool.query(
-      `SELECT id, role FROM employees WHERE id = ? LIMIT 1`,
-      [id]
-    );
-    const target = targets[0];
-    if (!target) throw new AppError('Employee not found.', 404);
-
-    const requestedRole = req.body.role || target.role;
-    if (req.user.role !== 'SUPER_ADMIN' && ['SUPER_ADMIN', 'ADMIN'].includes(target.role)) {
-      throw new AppError('Only Super Admin can manage Admin or Super Admin accounts.', 403);
-    }
-    if (req.user.role !== 'SUPER_ADMIN' && ['SUPER_ADMIN', 'ADMIN'].includes(requestedRole)) {
-      throw new AppError('Only Super Admin can assign Admin or Super Admin roles.', 403);
-    }
-
-    const recoveryEmail = req.body.recoveryEmail?.trim() || null;
-
-    const [result] = await pool.query(
-      `UPDATE employees
-       SET
-         full_name = ?,
-         email = ?,
-         recovery_email = ?,
-         username = ?,
-         phone = ?,
-         date_of_birth = ?,
-         role = ?,
-         designation = ?,
-         department_id = ?,
-         status = ?
-       WHERE id = ?`,
-      [
-        req.body.fullName?.trim(),
-        req.body.email?.trim() || null,
-        recoveryEmail,
-        req.body.username?.trim() || null,
-        req.body.phone?.trim() || null,
-        req.body.dateOfBirth || null,
-        req.body.role,
-        req.body.designation?.trim() || null,
-        req.body.departmentId || null,
-        req.body.status,
-        id
-      ]
-    );
-
-    if (!result.affectedRows) {
-      throw new AppError(
-        'Employee not found.',
-        404
-      );
-    }
-
-    res.json({
-      success: true,
-      message: 'Employee updated successfully.'
-    });
+  const role = req.body.role || target.role;
+  if (!allowedEmployeeRoles.includes(role)) throw new AppError('Invalid employee role.', 400);
+  if (req.user.role !== 'SUPER_ADMIN' && (target.role === 'ADMIN' || role === 'ADMIN')) {
+    throw new AppError('Only Head Admin can manage Admin accounts.', 403);
   }
-);
+
+  const designation = req.body.designation?.trim();
+  if (!designation) throw new AppError('Designation is required.', 400);
+  const department = await validateDepartment(req.body.departmentId);
+  const managerId = await validateManager(req.body.managerId, id);
+  const status = req.body.status || 'ACTIVE';
+  if (!allowedEmployeeStatuses.includes(status)) throw new AppError('Invalid employee status.', 400);
+
+  const [result] = await pool.query(
+    `UPDATE employees SET
+       full_name = ?, email = ?, recovery_email = ?, username = ?, phone = ?,
+       date_of_birth = ?, role = ?, designation = ?, department_id = ?, manager_id = ?,
+       joining_date = ?, status = ?
+     WHERE id = ?`,
+    [req.body.fullName?.trim(), req.body.email?.trim() || null,
+      req.body.recoveryEmail?.trim() || null, req.body.username?.trim() || null,
+      req.body.phone?.trim() || null, req.body.dateOfBirth || null, role, designation,
+      department.id, managerId, req.body.joiningDate || null, status, id]
+  );
+
+  if (!result.affectedRows) throw new AppError('Employee not found.', 404);
+  res.json({ success: true, message: 'Employee updated successfully.' });
+});
 
 export const deleteEmployee = asyncHandler(
   async (req, res) => {

@@ -64,5 +64,23 @@ export const env = {
 
   otpExpiryMinutes: Number(
     process.env.OTP_EXPIRY_MINUTES || 10
-  )
+  ),
+
+  githubReleaseToken:
+    process.env.GITHUB_RELEASE_TOKEN || '',
+  githubReleaseOwner:
+    process.env.GITHUB_RELEASE_OWNER ||
+    'digisrsb-byte',
+  githubReleaseRepo:
+    process.env.GITHUB_RELEASE_REPO ||
+    'srsb-work-management',
+  githubReleaseCacheSeconds: Math.max(
+    30,
+    Number(
+      process.env.GITHUB_RELEASE_CACHE_SECONDS ||
+      300
+    )
+  ),
+  publicApiUrl:
+    process.env.PUBLIC_API_URL || ''
 };

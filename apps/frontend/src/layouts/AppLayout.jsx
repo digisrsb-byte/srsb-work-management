@@ -29,6 +29,7 @@ import {
 } from '../config/navigation.js';
 
 import api from '../services/api.js';
+import UpdateBanner from '../components/UpdateBanner.jsx';
 
 function formatNotificationDate(value) {
   if (!value) {
@@ -95,6 +96,16 @@ export default function AppLayout({ mode }) {
               label: 'My Attendance',
               path: '/admin/my-attendance',
               icon: Clock3
+            },
+            {
+              label: 'Attendance Correction',
+              path: '/admin/my-attendance-corrections',
+              icon: Clock3
+            },
+            {
+              label: 'Holiday Calendar',
+              path: '/admin/holidays',
+              icon: CalendarDays
             },
             {
               label: 'My Leave',
@@ -606,6 +617,7 @@ export default function AppLayout({ mode }) {
           </div>
         </header>
 
+        <UpdateBanner />
         <div className="page-content">
           <Outlet />
         </div>
