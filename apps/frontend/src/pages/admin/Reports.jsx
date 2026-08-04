@@ -1,4 +1,7 @@
-import { useMemo, useState } from 'react';
+import {
+  useMemo,
+  useState
+} from 'react';
 import api from '../../services/api.js';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';

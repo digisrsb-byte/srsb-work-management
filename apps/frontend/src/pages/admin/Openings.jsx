@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react';
 import {
   BriefcaseBusiness,
   Building2,
@@ -750,6 +756,36 @@ export default function Openings() {
           </div>
         ))}
       </div>
+
+      {!clients.length && (
+        <div
+          className="message message-warning"
+          style={{
+            marginBottom: 18,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            flexWrap: 'wrap'
+          }}
+        >
+          <span>
+            No client has been added yet. Add a client
+            before creating a requirement.
+          </span>
+
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => {
+              window.location.hash =
+                '#/admin/clients';
+            }}
+          >
+            Go to Clients and add a company
+          </button>
+        </div>
+      )}
 
       <form className="card" onSubmit={createOpening}>
         <div className="section-heading">
