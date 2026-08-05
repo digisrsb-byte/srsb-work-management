@@ -22,8 +22,20 @@ async function syncHolidayAttendance(connection, holidayDate, departmentId) {
        AND COALESCE(e.account_type, 'EMPLOYEE') = 'EMPLOYEE'
        ${condition}
      ON DUPLICATE KEY UPDATE
-       status = IF(punch_in IS NULL AND punch_out IS NULL AND status NOT IN ('LEAVE'), 'HOLIDAY', status),
-       remarks = IF(punch_in IS NULL AND punch_out IS NULL AND status NOT IN ('LEAVE'), 'Company holiday', remarks)`,
+       status = IF(
+         attendance.punch_in IS NULL
+         AND attendance.punch_out IS NULL
+         AND attendance.status NOT IN ('LEAVE'),
+         'HOLIDAY',
+         attendance.status
+       ),
+       remarks = IF(
+         attendance.punch_in IS NULL
+         AND attendance.punch_out IS NULL
+         AND attendance.status NOT IN ('LEAVE'),
+         'Company holiday',
+         attendance.remarks
+       )`,
     values
   );
 }
