@@ -376,7 +376,10 @@ export const attendanceCalendar = asyncHandler(async (req, res) => {
   if (!employee) throw new AppError('Employee not found.', 404);
 
   const [records] = await pool.query(
-    `SELECT id, attendance_date, punch_in, punch_out,
+    `SELECT id,
+       DATE_FORMAT(attendance_date, '%Y-%m-%d') AS attendance_date,
+       punch_in,
+       punch_out,
        CASE
          WHEN punch_in IS NOT NULL AND punch_out IS NULL AND attendance_date = CURDATE()
          THEN TIMESTAMPDIFF(MINUTE, punch_in, NOW())
@@ -389,7 +392,9 @@ export const attendanceCalendar = asyncHandler(async (req, res) => {
   );
 
   const [holidays] = await pool.query(
-    `SELECT id, holiday_name, holiday_date, holiday_type, description
+    `SELECT id, holiday_name,
+       DATE_FORMAT(holiday_date, '%Y-%m-%d') AS holiday_date,
+       holiday_type, description
      FROM holidays
      WHERE holiday_date BETWEEN ? AND ?
        AND (department_id IS NULL OR department_id = ?)`,
@@ -397,8 +402,12 @@ export const attendanceCalendar = asyncHandler(async (req, res) => {
   );
   const [[todayRow]] = await pool.query('SELECT DATE_FORMAT(CURDATE(), "%Y-%m-%d") AS today');
   const today = todayRow.today;
-  const recordMap = new Map(records.map((record) => [String(record.attendance_date).slice(0, 10), record]));
-  const holidayMap = new Map(holidays.map((holiday) => [String(holiday.holiday_date).slice(0, 10), holiday]));
+  const recordMap = new Map(
+    records.map((record) => [record.attendance_date, record])
+  );
+  const holidayMap = new Map(
+    holidays.map((holiday) => [holiday.holiday_date, holiday])
+  );
 
   const calendar = [];
   const summary = {
@@ -409,7 +418,8 @@ export const attendanceCalendar = asyncHandler(async (req, res) => {
     HALF_DAY: 0,
     WEEK_OFF: 0,
     MISSING_PUNCH: 0,
-    NOT_MARKED: 0
+    NOT_MARKED: 0,
+    totalWorkMinutes: 0
   };
 
   for (let day = 1; day <= range.lastDay; day += 1) {
@@ -430,6 +440,15 @@ export const attendanceCalendar = asyncHandler(async (req, res) => {
 
     let status = record?.status || null;
     let remarks = record?.remarks || null;
+
+    // A real punch record always takes priority over a stale manually stored
+    // absent/holiday value. This keeps the calendar, summary and work-time cards aligned.
+    if (
+      record?.punch_in &&
+      !['HALF_DAY', 'MISSING_PUNCH'].includes(status)
+    ) {
+      status = 'PRESENT';
+    }
 
     if (!status && holiday) {
       status = 'HOLIDAY';
@@ -460,6 +479,12 @@ export const attendanceCalendar = asyncHandler(async (req, res) => {
 
     if (summary[status] !== undefined) {
       summary[status] += 1;
+    }
+
+    if (record?.punch_in) {
+      summary.totalWorkMinutes += Number(
+        record.total_work_minutes || 0
+      );
     }
 
     calendar.push({

@@ -27,18 +27,18 @@ export default function Holidays() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const selectedYear = month.slice(0, 4);
 
   const loadHolidays = useCallback(async () => {
     try {
       setLoading(true);
-      const [year, monthNo] = month.split('-').map(Number);
-      const from = `${month}-01`;
-      const to = `${month}-${String(new Date(year, monthNo, 0).getDate()).padStart(2, '0')}`;
+      const from = `${selectedYear}-01-01`;
+      const to = `${selectedYear}-12-31`;
       const response = await api.get('/holidays', { params: { from, to } });
       setHolidays(response.data.data || []);
     } catch (requestError) { setError(requestError.response?.data?.message || 'Unable to load holidays.'); }
     finally { setLoading(false); }
-  }, [month]);
+  }, [selectedYear]);
 
   useEffect(() => { loadHolidays(); }, [loadHolidays]);
   useEffect(() => {
@@ -88,6 +88,8 @@ export default function Holidays() {
     {message && <div className="message message-success">{message}</div>}{error && <div className="message message-error">{error}</div>}
     <div className="view-toggle"><button className={`btn ${view === 'CALENDAR' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setView('CALENDAR')}><CalendarDays size={17}/> Calendar</button><button className={`btn ${view === 'LIST' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setView('LIST')}><List size={17}/> List</button></div>
 
+    {view === 'LIST' && <div className="holiday-year-toolbar card"><button className="btn btn-secondary" type="button" onClick={() => setMonth(`${Number(selectedYear) - 1}-01`)}>← {Number(selectedYear) - 1}</button><div><strong>Holiday List — {selectedYear}</strong><p className="page-subtitle">All holidays from January to December.</p></div><button className="btn btn-secondary" type="button" onClick={() => setMonth(`${Number(selectedYear) + 1}-01`)}>{Number(selectedYear) + 1} →</button><button className="btn btn-secondary" type="button" onClick={() => setMonth(new Date().toISOString().slice(0, 4) + '-01')}>Current Year</button></div>}
+
     {loading ? <div className="card">Loading holiday calendar...</div> : view === 'CALENDAR' ? <MonthlyCalendar
       month={month} items={items} selectedDate={selected ? String(selected.holiday_date).slice(0, 10) : ''}
       onPrevious={() => setMonth(shiftMonth(month, -1))} onNext={() => setMonth(shiftMonth(month, 1))}
@@ -95,7 +97,7 @@ export default function Holidays() {
       onSelectDate={(date, item) => item ? setSelected(item) : canManage ? openCreate(date) : null}
       renderCell={({ item }) => item ? <div className={`calendar-event holiday-${String(item.holiday_type).toLowerCase()}`}><strong>{item.holiday_name}</strong><span>{label(item.holiday_type)}</span></div> : null}
       legend={<><span><i className="legend-dot holiday-national"/>National</span><span><i className="legend-dot holiday-company"/>Company</span><span><i className="legend-dot holiday-regional"/>Regional</span><span><i className="legend-dot holiday-optional"/>Optional</span></>}
-    /> : <div className="card table-wrap"><table className="data-table"><thead><tr><th>Date</th><th>Holiday</th><th>Type</th><th>Applicable To</th><th>Greeting</th><th>Actions</th></tr></thead><tbody>{holidays.length === 0 ? <tr><td colSpan="6">No holidays in this month.</td></tr> : holidays.map((holiday) => <tr key={holiday.id}><td>{formatDate(holiday.holiday_date)}</td><td><strong>{holiday.holiday_name}</strong><small>{holiday.description || '—'}</small></td><td>{label(holiday.holiday_type)}</td><td>{holiday.department_name || 'All employees'}</td><td>{holiday.show_greeting ? holiday.greeting_message : 'Disabled'}</td><td>{canManage && <div className="row-actions"><button className="icon-btn" onClick={() => openEdit(holiday)}><Pencil size={16}/></button><button className="icon-btn danger" onClick={() => remove(holiday)}><Trash2 size={16}/></button></div>}</td></tr>)}</tbody></table></div>}
+    /> : <div className="card table-wrap"><table className="data-table"><thead><tr><th>Date</th><th>Holiday</th><th>Type</th><th>Applicable To</th><th>Greeting</th><th>Actions</th></tr></thead><tbody>{holidays.length === 0 ? <tr><td colSpan="6">No holidays found in {selectedYear}.</td></tr> : holidays.map((holiday) => <tr key={holiday.id}><td>{formatDate(holiday.holiday_date)}</td><td><strong>{holiday.holiday_name}</strong><small>{holiday.description || '—'}</small></td><td>{label(holiday.holiday_type)}</td><td>{holiday.department_name || 'All employees'}</td><td>{holiday.show_greeting ? holiday.greeting_message : 'Disabled'}</td><td>{canManage && <div className="row-actions"><button className="icon-btn" onClick={() => openEdit(holiday)}><Pencil size={16}/></button><button className="icon-btn danger" onClick={() => remove(holiday)}><Trash2 size={16}/></button></div>}</td></tr>)}</tbody></table></div>}
 
     {selected && <div className="modal-overlay"><div className="modal-card"><div className="section-heading"><h2>{selected.holiday_name}</h2><button className="icon-btn" onClick={() => setSelected(null)}><X size={20}/></button></div><div className="holiday-detail"><p><b>Date:</b> {formatDate(selected.holiday_date)}</p><p><b>Type:</b> {label(selected.holiday_type)}</p><p><b>Applicable:</b> {selected.department_name || 'All employees'}</p><p><b>Description:</b> {selected.description || '—'}</p><p><b>Dashboard Greeting:</b> {selected.show_greeting ? selected.greeting_message : 'Disabled'}</p></div>{canManage && <div className="form-actions"><button className="btn btn-primary" onClick={() => openEdit(selected)}><Pencil size={16}/> Edit / Change Date</button><button className="btn btn-secondary" onClick={() => remove(selected)}><Trash2 size={16}/> Delete</button></div>}</div></div>}
 

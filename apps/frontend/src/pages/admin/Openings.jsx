@@ -13,9 +13,11 @@ import {
   Plus,
   Search,
   RefreshCw,
+  Trash2,
   UserRound
 } from 'lucide-react';
 import api from '../../services/api.js';
+import { useAuth } from '../../context/AuthContext.jsx';
 import useDebouncedValue from '../../hooks/useDebouncedValue.js';
 
 const initialForm = {
@@ -68,6 +70,9 @@ function formatDate(value) {
 }
 
 export default function Openings() {
+  const { user } = useAuth();
+  const canDeleteRequirement = ['SUPER_ADMIN', 'ADMIN'].includes(user?.role);
+  const addFormRef = useRef(null);
   const [openings, setOpenings] = useState([]);
   const [clients, setClients] = useState([]);
   const [employees, setEmployees] = useState([]);
@@ -237,6 +242,25 @@ export default function Openings() {
       );
     } finally {
       setCreating(false);
+    }
+  };
+
+  const deleteOpening = async (opening) => {
+    if (!window.confirm(`Delete requirement "${opening.title}" for ${opening.company_name}?`)) {
+      return;
+    }
+
+    try {
+      setError('');
+      setMessage('');
+      const response = await api.delete(`/openings/${opening.id}`);
+      showMessage(response.data.message || 'Requirement deleted successfully.');
+      await loadData({ silent: true });
+    } catch (err) {
+      showError(
+        err.response?.data?.message ||
+          'Unable to delete requirement.'
+      );
     }
   };
 
@@ -607,6 +631,21 @@ export default function Openings() {
 
           <button
             type="button"
+            className="btn btn-primary"
+            onClick={() => {
+              addFormRef.current?.scrollIntoView({
+                behavior: 'smooth',
+                block: 'start'
+              });
+              addFormRef.current?.querySelector('select')?.focus();
+            }}
+          >
+            <Plus size={17} />
+            Add Requirement
+          </button>
+
+          <button
+            type="button"
             className="btn btn-secondary"
             onClick={async () => {
               setRefreshing(true);
@@ -787,7 +826,7 @@ export default function Openings() {
         </div>
       )}
 
-      <form className="card" onSubmit={createOpening}>
+      <form ref={addFormRef} className="card" onSubmit={createOpening}>
         <div className="section-heading">
           <div>
             <h2>Add New Requirement</h2>
@@ -1048,6 +1087,17 @@ export default function Openings() {
                   >
                     {formatText(opening.status)}
                   </span>
+
+                  {canDeleteRequirement && (
+                    <button
+                      type="button"
+                      className="btn btn-danger btn-compact"
+                      onClick={() => deleteOpening(opening)}
+                    >
+                      <Trash2 size={15} />
+                      Delete
+                    </button>
+                  )}
                 </div>
               </div>
 

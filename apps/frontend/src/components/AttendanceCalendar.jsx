@@ -72,9 +72,11 @@ export default function AttendanceCalendar({
               )}
 
             {item.punchIn && (
-              <span>
-                {time(item.punchIn)} – {time(item.punchOut)}
-              </span>
+              <span>Punch In: {time(item.punchIn)}</span>
+            )}
+
+            {item.punchOut && (
+              <span>Punch Out: {time(item.punchOut)}</span>
             )}
 
             {item.totalWorkMinutes > 0 && (

@@ -692,3 +692,77 @@ const [[client]] = await pool.query(
     });
   }
 );
+
+export const deleteOpening = asyncHandler(
+  async (req, res) => {
+    const openingId = Number(req.params.id);
+
+    if (!Number.isInteger(openingId) || openingId <= 0) {
+      throw new AppError('Invalid opening ID.', 400);
+    }
+
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      const [[opening]] = await connection.query(
+        `SELECT jo.id, jo.title, jo.client_id, c.company_name
+         FROM job_openings jo
+         JOIN clients c ON c.id = jo.client_id
+         WHERE jo.id = ?
+         FOR UPDATE`,
+        [openingId]
+      );
+
+      if (!opening) {
+        throw new AppError('Requirement not found.', 404);
+      }
+
+      const [[linked]] = await connection.query(
+        `SELECT COUNT(*) AS count
+         FROM candidate_applications
+         WHERE opening_id = ?`,
+        [openingId]
+      );
+
+      if (Number(linked.count || 0) > 0) {
+        throw new AppError(
+          'This requirement has linked candidates. Change its status to Closed instead of deleting it.',
+          409
+        );
+      }
+
+      await connection.query(
+        `INSERT INTO audit_logs (
+           employee_id,
+           action,
+           entity_type,
+           entity_id,
+           old_values,
+           new_values,
+           ip_address
+         )
+         VALUES (?, 'JOB_REQUIREMENT_DELETED', 'JOB_OPENING', ?, ?, NULL, ?)`,
+        [req.user.id, String(openingId), JSON.stringify(opening), req.ip || null]
+      );
+
+      await connection.query(
+        'DELETE FROM job_openings WHERE id = ?',
+        [openingId]
+      );
+
+      await connection.commit();
+
+      res.json({
+        success: true,
+        message: `Requirement "${opening.title}" deleted successfully.`
+      });
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+);

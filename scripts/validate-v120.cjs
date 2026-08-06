@@ -39,17 +39,21 @@ requireText('apps/backend/src/controllers/attendanceController.js', [
   "weekday === 'SATURDAY'",
   "status = 'NOT_MARKED'",
   'workedOnHoliday',
-  "THEN 'HALF_DAY'"
+  "THEN 'HALF_DAY'",
+  "DATE_FORMAT(attendance_date, '%Y-%m-%d') AS attendance_date",
+  'totalWorkMinutes: 0'
 ]);
 requireText('apps/frontend/src/pages/admin/Invoices.jsx', ['Invoice Preview', 'Preview Invoice', 'Download PDF', 'Placed Candidates']);
 requireText('apps/frontend/src/utils/invoicePdf.js', ['TAX INVOICE', 'RECRUITMENT & PLACEMENT SERVICES', 'downloadInvoicePdf', 'invoice-print-frame']);
-requireText('apps/frontend/src/pages/admin/Holidays.jsx', ['MonthlyCalendar', 'Dashboard Greeting']);
+requireText('apps/frontend/src/pages/admin/Holidays.jsx', ['MonthlyCalendar', 'Dashboard Greeting', 'All holidays from January to December.', 'No holidays found in {selectedYear}.']);
 requireText('apps/frontend/src/pages/Tasks.jsx', ['Request Due-Date Extension', 'Change History']);
 requireText('apps/frontend/src/components/AttendanceCalendar.jsx', [
   "PRESENT: 'Present'",
   "HOLIDAY: 'Holiday'",
   "NOT_MARKED: 'No Punch / Not Marked'",
-  'Worked on Holiday'
+  'Worked on Holiday',
+  'Punch In:',
+  'Punch Out:'
 ]);
 requireText('apps/frontend/src/pages/admin/Candidates.jsx', ['Source for Company', 'Placement & Employment History']);
 requireText('apps/backend/src/controllers/clientController.js', ['c.state_code', 'state_code = ?']);
@@ -72,6 +76,26 @@ requireText('apps/backend/src/utils/attendanceScheduler.js', [
 requireText('apps/backend/src/controllers/taskController.js', [
   "'TASK_DELETED'",
   "Assigned work \"${task.title}\" deleted successfully."
+]);
+
+requireText('apps/backend/src/controllers/openingController.js', [
+  'deleteOpening',
+  "'JOB_REQUIREMENT_DELETED'",
+  'Change its status to Closed instead of deleting it.'
+]);
+requireText('apps/backend/src/routes/openingRoutes.js', [
+  "router.delete(",
+  "allowRoles('SUPER_ADMIN', 'ADMIN')"
+]);
+requireText('apps/frontend/src/pages/admin/Openings.jsx', [
+  'Add Requirement',
+  'Delete',
+  'canDeleteRequirement'
+]);
+requireText('apps/frontend/src/pages/employee/MyAttendance.jsx', [
+  'monthlyWorkMinutes',
+  'Punch In:',
+  'Calculated from this calendar month'
 ]);
 
 const attendanceSource = read('apps/backend/src/controllers/attendanceController.js');

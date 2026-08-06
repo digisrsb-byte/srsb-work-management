@@ -143,10 +143,18 @@ export const employeeDashboard = asyncHandler(async (req, res) => {
   );
 
   const [[monthly]] = await pool.query(
-    `SELECT COALESCE(SUM(total_work_minutes), 0) minutes,
-       SUM(status = 'PRESENT') presentDays,
-       SUM(status = 'HALF_DAY') halfDays,
-       SUM(status = 'ABSENT') absentDays,
+    `SELECT
+       COALESCE(SUM(
+         CASE
+           WHEN punch_in IS NULL THEN 0
+           WHEN punch_out IS NULL AND attendance_date = CURDATE()
+             THEN TIMESTAMPDIFF(MINUTE, punch_in, NOW())
+           ELSE COALESCE(total_work_minutes, 0)
+         END
+       ), 0) minutes,
+       SUM(punch_in IS NOT NULL AND status = 'PRESENT') presentDays,
+       SUM(punch_in IS NOT NULL AND status = 'HALF_DAY') halfDays,
+       SUM(punch_in IS NULL AND status = 'ABSENT') absentDays,
        SUM(status = 'LEAVE') leaveDays,
        SUM(status = 'HOLIDAY') holidayDays
      FROM attendance
@@ -173,7 +181,8 @@ export const employeeDashboard = asyncHandler(async (req, res) => {
   );
 
   const [recentAttendance] = await pool.query(
-    `SELECT attendance_date, punch_in, punch_out, status, total_work_minutes
+    `SELECT DATE_FORMAT(attendance_date, '%Y-%m-%d') AS attendance_date,
+       punch_in, punch_out, status, total_work_minutes
      FROM attendance
      WHERE employee_id = ?
      ORDER BY attendance_date DESC

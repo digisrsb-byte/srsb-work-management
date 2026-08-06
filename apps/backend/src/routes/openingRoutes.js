@@ -4,7 +4,8 @@ import {
   createOpening,
   listOpenings,
   getOpeningById,
-  updateOpening
+  updateOpening,
+  deleteOpening
 } from '../controllers/openingController.js';
 import {
   authenticate,
@@ -119,6 +120,13 @@ router.put(
     validate
   ],
   updateOpening
+);
+
+
+router.delete(
+  '/:id',
+  allowRoles('SUPER_ADMIN', 'ADMIN'),
+  deleteOpening
 );
 
 export default router;
