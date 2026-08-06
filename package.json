@@ -1,6 +1,6 @@
 {
   "name": "srsb-hrms-desktop-suite",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "workspaces": [
     "apps/frontend",
@@ -16,7 +16,9 @@
     "start:all": "scripts\\start-development.bat",
     "set-version": "node scripts/set-version.cjs",
     "migrate:v110": "npm --workspace apps/backend run migrate:v110",
-    "validate:backend": "node scripts/validate-backend.cjs"
+    "validate:backend": "node scripts/validate-backend.cjs",
+    "migrate:v120": "npm --workspace apps/backend run migrate:v120",
+    "validate:v120": "node scripts/validate-v120.cjs"
   },
   "allowScripts": {
     "electron@36.4.0": true,

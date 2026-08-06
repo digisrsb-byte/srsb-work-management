@@ -350,3 +350,154 @@ CREATE TABLE IF NOT EXISTS password_reset_otps (
   INDEX idx_password_reset_expiry (expires_at),
   CONSTRAINT fk_password_reset_employee FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
 );
+
+-- =============================================================
+-- Version 1.2.0 additions for candidate sourcing, recruitment
+-- invoices, holiday greetings, editable tasks and calendars.
+-- For an existing Railway database use ensureV120Schema.js instead.
+-- =============================================================
+ALTER TABLE clients ADD COLUMN state_code VARCHAR(8) NULL;
+ALTER TABLE candidates
+  ADD COLUMN date_of_birth DATE NULL,
+  ADD COLUMN candidate_source VARCHAR(80) NULL,
+  ADD COLUMN source_details VARCHAR(255) NULL,
+  ADD COLUMN enrollment_date DATE NULL;
+ALTER TABLE candidate_applications
+  ADD COLUMN sourced_date DATE NULL,
+  ADD COLUMN sourcing_notes VARCHAR(1000) NULL;
+ALTER TABLE candidate_employment_history
+  ADD COLUMN application_id INT NULL,
+  ADD COLUMN opening_id INT NULL,
+  ADD COLUMN location VARCHAR(160) NULL,
+  ADD COLUMN gross_salary DECIMAL(14,2) NOT NULL DEFAULT 0,
+  ADD COLUMN offered_ctc DECIMAL(14,2) NOT NULL DEFAULT 0,
+  ADD COLUMN offer_date DATE NULL,
+  ADD COLUMN placement_fee DECIMAL(14,2) NOT NULL DEFAULT 0,
+  ADD COLUMN replacement_period_days INT NULL,
+  ADD COLUMN recruiter_id INT NULL,
+  ADD INDEX idx_candidate_history_application (application_id),
+  ADD INDEX idx_candidate_history_opening (opening_id),
+  ADD INDEX idx_candidate_history_recruiter (recruiter_id);
+ALTER TABLE invoices
+  ADD COLUMN sac_code VARCHAR(24) NOT NULL DEFAULT '998616',
+  ADD COLUMN place_of_supply VARCHAR(160) NULL,
+  ADD COLUMN cgst_rate DECIMAL(6,3) NOT NULL DEFAULT 0,
+  ADD COLUMN sgst_rate DECIMAL(6,3) NOT NULL DEFAULT 0,
+  ADD COLUMN igst_rate DECIMAL(6,3) NOT NULL DEFAULT 0;
+
+CREATE TABLE invoice_items (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  invoice_id INT NOT NULL,
+  candidate_id INT NULL,
+  placement_history_id INT NULL,
+  candidate_name_snapshot VARCHAR(180) NOT NULL,
+  designation_snapshot VARCHAR(180) NULL,
+  location_snapshot VARCHAR(160) NULL,
+  joining_date DATE NULL,
+  annual_ctc DECIMAL(14,2) NOT NULL DEFAULT 0,
+  gross_salary DECIMAL(14,2) NOT NULL DEFAULT 0,
+  fee_type ENUM('PERCENTAGE_CTC','PERCENTAGE_GROSS','FIXED','CUSTOM') NOT NULL DEFAULT 'FIXED',
+  fee_rate DECIMAL(8,3) NOT NULL DEFAULT 0,
+  taxable_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_invoice_items_invoice (invoice_id),
+  INDEX idx_invoice_items_candidate (candidate_id),
+  INDEX idx_invoice_items_placement (placement_history_id),
+  CONSTRAINT fk_invoice_item_invoice FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,
+  CONSTRAINT fk_invoice_item_candidate FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE SET NULL,
+  CONSTRAINT fk_invoice_item_placement FOREIGN KEY (placement_history_id) REFERENCES candidate_employment_history(id) ON DELETE SET NULL
+);
+
+CREATE TABLE invoice_settings (
+  id TINYINT PRIMARY KEY,
+  legal_name VARCHAR(220) NOT NULL,
+  gst_number VARCHAR(32) NULL,
+  registered_address VARCHAR(1000) NULL,
+  email VARCHAR(180) NULL,
+  phone VARCHAR(120) NULL,
+  default_sac_code VARCHAR(24) NOT NULL DEFAULT '998616',
+  default_cgst_rate DECIMAL(6,3) NOT NULL DEFAULT 9,
+  default_sgst_rate DECIMAL(6,3) NOT NULL DEFAULT 9,
+  default_igst_rate DECIMAL(6,3) NOT NULL DEFAULT 18,
+  bank_account_name VARCHAR(220) NULL,
+  bank_account_number VARCHAR(80) NULL,
+  bank_ifsc VARCHAR(40) NULL,
+  bank_name VARCHAR(160) NULL,
+  bank_branch VARCHAR(160) NULL,
+  authorised_signatory VARCHAR(180) NULL,
+  invoice_prefix VARCHAR(30) NOT NULL DEFAULT 'SRSB',
+  updated_by INT NULL,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+INSERT INTO invoice_settings (
+  id, legal_name, gst_number, registered_address, email, phone,
+  default_sac_code, default_cgst_rate, default_sgst_rate, default_igst_rate,
+  bank_account_name, bank_account_number, bank_ifsc, bank_name, bank_branch,
+  authorised_signatory, invoice_prefix
+) VALUES (
+  1, 'SRSB WORKFORCE SOLUTIONS PVT LTD', '29ABQCS9374K1Z6',
+  'No. 228/B, 55th Cross, 3rd Block, Rajajinagar, Bangalore - 560010',
+  'srsbhrsolutions25@gmail.com', '8317406575 / 8660666087', '998616', 9, 9, 18,
+  NULL, NULL, NULL,
+  NULL, NULL, 'Authorised Signatory', 'SRSB'
+);
+
+ALTER TABLE holidays
+  ADD COLUMN show_greeting BOOLEAN NOT NULL DEFAULT TRUE,
+  ADD COLUMN greeting_message VARCHAR(1000) NULL,
+  ADD COLUMN greeting_start_date DATE NULL,
+  ADD COLUMN greeting_end_date DATE NULL;
+
+ALTER TABLE tasks
+  MODIFY status ENUM('PENDING','IN_PROGRESS','BLOCKED','COMPLETED','CANCELLED') NOT NULL DEFAULT 'PENDING',
+  ADD COLUMN start_date DATETIME NULL,
+  ADD COLUMN original_due_date DATETIME NULL,
+  ADD COLUMN remarks VARCHAR(1000) NULL;
+
+CREATE TABLE task_extension_requests (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  task_id INT NOT NULL,
+  requested_by INT NOT NULL,
+  current_due_date DATETIME NULL,
+  requested_due_date DATETIME NOT NULL,
+  reason VARCHAR(1000) NOT NULL,
+  status ENUM('PENDING','APPROVED','REJECTED') NOT NULL DEFAULT 'PENDING',
+  reviewed_by INT NULL,
+  reviewer_comment VARCHAR(1000) NULL,
+  reviewed_at DATETIME NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_task_extension_task (task_id, status),
+  CONSTRAINT fk_task_extension_task FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+  CONSTRAINT fk_task_extension_requester FOREIGN KEY (requested_by) REFERENCES employees(id) ON DELETE CASCADE,
+  CONSTRAINT fk_task_extension_reviewer FOREIGN KEY (reviewed_by) REFERENCES employees(id) ON DELETE SET NULL
+);
+
+CREATE TABLE task_change_history (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  task_id INT NOT NULL,
+  changed_by INT NULL,
+  change_type VARCHAR(80) NOT NULL,
+  field_name VARCHAR(120) NULL,
+  old_value TEXT NULL,
+  new_value TEXT NULL,
+  reason VARCHAR(1000) NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_task_history_task (task_id, created_at),
+  CONSTRAINT fk_task_history_task FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+  CONSTRAINT fk_task_history_employee FOREIGN KEY (changed_by) REFERENCES employees(id) ON DELETE SET NULL
+);
+
+CREATE TABLE task_attachments (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  task_id INT NOT NULL,
+  file_name VARCHAR(255) NOT NULL,
+  mime_type VARCHAR(120) NOT NULL,
+  file_data LONGBLOB NOT NULL,
+  uploaded_by INT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_task_attachment_task (task_id),
+  CONSTRAINT fk_task_attachment_task FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+  CONSTRAINT fk_task_attachment_employee FOREIGN KEY (uploaded_by) REFERENCES employees(id) ON DELETE SET NULL
+);

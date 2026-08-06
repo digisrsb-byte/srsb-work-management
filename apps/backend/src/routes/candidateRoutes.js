@@ -2,9 +2,13 @@ import { Router } from 'express';
 import { body } from 'express-validator';
 import {
   listCandidates,
+  getCandidateReferenceData,
+  listCandidatePlacements,
   createCandidate,
   updateCandidate,
+  linkCandidateApplication,
   updateCandidateStage,
+  deleteCandidateApplication,
   getCandidateHistory,
   createCandidateHistory,
   updateCandidateHistory,
@@ -17,6 +21,8 @@ const router = Router();
 const candidateRoles = ['SUPER_ADMIN','ADMIN','HR','MANAGER','RECRUITER','EMPLOYEE'];
 
 router.use(authenticate);
+router.get('/reference-data', allowRoles(...candidateRoles), getCandidateReferenceData);
+router.get('/placements', allowRoles(...candidateRoles), listCandidatePlacements);
 router.get('/', allowRoles(...candidateRoles), listCandidates);
 router.post(
   '/',
@@ -30,7 +36,9 @@ router.post(
   createCandidate
 );
 router.put('/:id', allowRoles(...candidateRoles), updateCandidate);
+router.post('/:id/applications', allowRoles(...candidateRoles), linkCandidateApplication);
 router.put('/applications/:applicationId/stage', allowRoles(...candidateRoles), updateCandidateStage);
+router.delete('/:id/applications/:applicationId', allowRoles('SUPER_ADMIN','ADMIN','HR','MANAGER'), deleteCandidateApplication);
 router.get('/:id/history', allowRoles(...candidateRoles), getCandidateHistory);
 router.post('/:id/history', allowRoles(...candidateRoles), createCandidateHistory);
 router.put('/:id/history/:historyId', allowRoles(...candidateRoles), updateCandidateHistory);

@@ -1,17 +1,19 @@
 # SRSB Work Management
 
-Current release: **1.1.0**
+Current source release: **1.2.0**
 
-Start with [README-V1.1.0.md](README-V1.1.0.md) for features, build, deployment, Railway migration and automatic-update instructions.
+Read [README-V1.2.0.md](README-V1.2.0.md) before deployment.
 
-Quick build on Windows:
+Windows build:
 
 ```text
-Build-SRSB-v1.1.0.bat
+Build-SRSB-v1.2.0.bat
 ```
 
 Expected installer:
 
 ```text
-release\SRSB-Work-Management-Setup-1.1.0.exe
+release\SRSB-Work-Management-Setup-1.2.0.exe
 ```
+
+The existing GitHub repository, Railway backend and Railway MySQL database are reused. Production database changes are applied by the safe additive backend migration; never run `database/schema.sql` on Railway.

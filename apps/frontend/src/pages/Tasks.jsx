@@ -1,1003 +1,126 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState
-} from 'react';
-import {
-  CalendarDays,
-  CheckCircle2,
-  ListTodo,
-  Search,
-  Send,
-  UserRound
-} from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { CalendarClock, Download, Eye, FileUp, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import api from '../services/api.js';
-import { useAuth } from '../context/AuthContext.jsx';
 import useDebouncedValue from '../hooks/useDebouncedValue.js';
+import { useAuth } from '../context/AuthContext.jsx';
 
-const adminRoles = [
-  'SUPER_ADMIN',
-  'ADMIN',
-  'HR',
-  'MANAGER'
-];
+const adminRoles = ['SUPER_ADMIN','ADMIN','HR','MANAGER'];
+const statuses = ['PENDING','IN_PROGRESS','BLOCKED','COMPLETED','CANCELLED'];
+const priorities = ['LOW','MEDIUM','HIGH','URGENT'];
+const emptyForm = { title: '', description: '', assignedTo: '', startDate: '', dueDate: '', priority: 'MEDIUM', status: 'PENDING', progress: 0, remarks: '', extensionReason: '', attachment: null };
+const label = (value) => String(value || '').replaceAll('_',' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+const localDateTime = (value) => value ? new Date(value).toISOString().slice(0, 16) : '';
+const formatDate = (value) => value ? new Date(value).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : 'No deadline';
 
-const initialTaskForm = {
-  title: '',
-  description: '',
-  assignedTo: '',
-  dueDate: '',
-  priority: 'MEDIUM'
-};
-
-const statusOptions = [
-  {
-    value: 'PENDING',
-    label: 'Pending'
-  },
-  {
-    value: 'IN_PROGRESS',
-    label: 'In Progress'
-  },
-  {
-    value: 'COMPLETED',
-    label: 'Completed'
-  }
-];
-
-const priorityOptions = [
-  'LOW',
-  'MEDIUM',
-  'HIGH',
-  'URGENT'
-];
-
-function formatText(value) {
-  return String(value || '')
-    .replaceAll('_', ' ')
-    .toLowerCase()
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function formatDate(value) {
-  if (!value) return 'No deadline';
-
-  return new Date(value).toLocaleString('en-IN', {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  });
+async function filePayload(file) {
+  if (!file) return null;
+  if (file.size > 5 * 1024 * 1024) throw new Error('Attachment must be 5 MB or smaller.');
+  const data = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); });
+  return { name: file.name, type: file.type, data };
 }
 
 export default function Tasks() {
   const { user } = useAuth();
-
-  const canAssignTasks = adminRoles.includes(user?.role);
-
+  const canManage = adminRoles.includes(user?.role);
   const [tasks, setTasks] = useState([]);
   const [employees, setEmployees] = useState([]);
-
-  const [taskForm, setTaskForm] = useState(initialTaskForm);
-  const [employeeSearch, setEmployeeSearch] = useState('');
-  const [taskSearch, setTaskSearch] = useState('');
-
+  const [form, setForm] = useState(emptyForm);
+  const [editing, setEditing] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [selected, setSelected] = useState(null);
+  const [history, setHistory] = useState({ history: [], extensions: [], attachments: [] });
+  const [extensionTask, setExtensionTask] = useState(null);
+  const [extensionForm, setExtensionForm] = useState({ requestedDueDate: '', reason: '' });
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
-  const [savingTaskId, setSavingTaskId] = useState(null);
-
+  const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const hasLoadedRef = useRef(false);
+  const debouncedSearch = useDebouncedValue(search, 300);
 
-  const showMessage = (text) => {
-    setError('');
-    setMessage(text);
-  };
+  const loadTasks = useCallback(async () => {
+    try { setLoading(true); const response = await api.get('/tasks', { params: { search: debouncedSearch || undefined, status: status || undefined } }); setTasks(response.data.data || []); }
+    catch (requestError) { setError(requestError.response?.data?.message || 'Unable to load tasks.'); }
+    finally { setLoading(false); }
+  }, [debouncedSearch, status]);
 
-  const showError = (text) => {
-    setMessage('');
-    setError(text);
-  };
-
-  const debouncedTaskSearch = useDebouncedValue(taskSearch, 300);
-  const debouncedEmployeeSearch = useDebouncedValue(
-    employeeSearch,
-    300
-  );
-
-  const loadTasks = useCallback(async ({ silent = false } = {}) => {
-    try {
-      if (!silent && !hasLoadedRef.current) {
-        setLoading(true);
-      }
-
-      const params = {};
-
-      if (debouncedTaskSearch.trim()) {
-        params.search = debouncedTaskSearch.trim();
-      }
-
-      const response = await api.get('/tasks', { params });
-      setTasks(response.data.data || []);
-    } catch (err) {
-      showError(
-        err.response?.data?.message ||
-          'Unable to load tasks.'
-      );
-    } finally {
-      if (!silent) {
-        setLoading(false);
-      }
-      hasLoadedRef.current = true;
-    }
-  }, [debouncedTaskSearch]);
-
-  const loadEmployees = useCallback(async () => {
-    if (!canAssignTasks) {
-      setEmployees([]);
-      return;
-    }
-
-    try {
-      const params = { status: 'ACTIVE' };
-
-      if (debouncedEmployeeSearch.trim()) {
-        params.search = debouncedEmployeeSearch.trim();
-      }
-
-      const response = await api.get('/employees', { params });
-      setEmployees(response.data.data || []);
-    } catch (err) {
-      showError(
-        err.response?.data?.message ||
-          'Unable to load employees.'
-      );
-    }
-  }, [canAssignTasks, debouncedEmployeeSearch]);
-
+  useEffect(() => { loadTasks(); }, [loadTasks]);
   useEffect(() => {
-    setError('');
-    loadTasks();
-  }, [loadTasks, user?.role]);
+    if (!canManage) return;
+    api.get('/employees').then((response) => setEmployees(response.data.data || [])).catch(() => setEmployees([]));
+  }, [canManage]);
 
-  useEffect(() => {
-    loadEmployees();
-  }, [loadEmployees]);
+  const summary = useMemo(() => ({ total: tasks.length, pending: tasks.filter((item) => item.status === 'PENDING').length, progress: tasks.filter((item) => item.status === 'IN_PROGRESS').length, overdue: tasks.filter((item) => !['COMPLETED','CANCELLED'].includes(item.status) && item.due_date && new Date(item.due_date) < new Date()).length }), [tasks]);
 
-  const filteredEmployees = employees;
-  const filteredTasks = tasks;
+  function openCreate() { setEditing(null); setForm(emptyForm); setShowForm(true); }
+  function openEdit(task) {
+    setEditing(task); setForm({ title: task.title || '', description: task.description || '', assignedTo: task.assigned_to || '', startDate: localDateTime(task.start_date), dueDate: localDateTime(task.due_date), priority: task.priority || 'MEDIUM', status: task.status || 'PENDING', progress: task.progress || 0, remarks: task.remarks || '', extensionReason: '', attachment: null }); setShowForm(true);
+  }
+  function setField(event) { const { name, value, files } = event.target; setForm((current) => ({ ...current, [name]: files ? files[0] : value })); }
 
-  const handleTaskFormChange = (event) => {
-    const { name, value } = event.target;
-
-    setTaskForm((current) => ({
-      ...current,
-      [name]: value
-    }));
-  };
-
-  const createTask = async (event) => {
+  async function saveTask(event) {
     event.preventDefault();
-
-    if (!taskForm.assignedTo) {
-      showError('Select an employee for this task.');
-      return;
-    }
-
     try {
-      setCreating(true);
-      setError('');
-      setMessage('');
-
-      const response = await api.post('/tasks', {
-        title: taskForm.title,
-        description: taskForm.description,
-        assignedTo: Number(taskForm.assignedTo),
-        dueDate: taskForm.dueDate || null,
-        priority: taskForm.priority
-      });
-
-      showMessage(
-        response.data.message ||
-          'Task assigned successfully.'
-      );
-
-      setTaskForm(initialTaskForm);
-      setEmployeeSearch('');
-
-      await loadTasks();
-    } catch (err) {
-      showError(
-        err.response?.data?.message ||
-          'Unable to assign task.'
-      );
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  const updateLocalTask = (
-    taskId,
-    field,
-    value
-  ) => {
-    setTasks((currentTasks) =>
-      currentTasks.map((task) => {
-        if (task.id !== taskId) return task;
-
-        const updatedTask = {
-          ...task,
-          [field]: value
-        };
-
-        if (field === 'status') {
-          if (value === 'PENDING') {
-            updatedTask.progress = 0;
-          }
-
-          if (value === 'IN_PROGRESS') {
-            const existingProgress = Number(
-              task.progress || 0
-            );
-
-            updatedTask.progress =
-              existingProgress > 0 &&
-              existingProgress < 100
-                ? existingProgress
-                : 10;
-          }
-
-          if (value === 'COMPLETED') {
-            updatedTask.progress = 100;
-          }
-        }
-
-        return updatedTask;
-      })
-    );
-  };
-
-  const saveTaskStatus = async (task) => {
-    try {
-      setSavingTaskId(task.id);
-      setError('');
-      setMessage('');
-
-      const response = await api.patch(
-        `/tasks/${task.id}/status`,
-        {
-          status: task.status,
-          progress: Number(task.progress)
-        }
-      );
-
-      showMessage(
-        response.data.message ||
-          'Task updated successfully.'
-      );
-
-      await loadTasks();
-    } catch (err) {
-      showError(
-        err.response?.data?.message ||
-          'Unable to update task.'
-      );
-    } finally {
-      setSavingTaskId(null);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="card">
-        Loading tasks...
-      </div>
-    );
+      setSaving(true); setError(''); const payload = { ...form, attachment: await filePayload(form.attachment), progress: Number(form.progress) };
+      const response = editing ? await api.put(`/tasks/${editing.id}`, payload) : await api.post('/tasks', payload);
+      setMessage(response.data.message); setShowForm(false); setEditing(null); await loadTasks();
+    } catch (requestError) { setError(requestError.response?.data?.message || requestError.message || 'Task could not be saved.'); }
+    finally { setSaving(false); }
   }
 
-  return (
-    <>
-      <style>
-        {`
-          .tasks-page-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            gap: 18px;
-            margin-bottom: 24px;
-            flex-wrap: wrap;
-          }
-
-          .tasks-summary {
-            display: grid;
-            grid-template-columns:
-              repeat(auto-fit, minmax(190px, 1fr));
-            gap: 14px;
-            margin-bottom: 22px;
-          }
-
-          .task-summary-card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 18px;
-            padding: 18px;
-            display: flex;
-            align-items: center;
-            gap: 14px;
-          }
-
-          .task-summary-icon {
-            width: 44px;
-            height: 44px;
-            border-radius: 13px;
-            display: grid;
-            place-items: center;
-            background: var(--surface-muted);
-            flex-shrink: 0;
-          }
-
-          .task-form-card {
-            margin-bottom: 22px;
-          }
-
-          .task-form-grid {
-            display: grid;
-            grid-template-columns:
-              repeat(2, minmax(0, 1fr));
-            gap: 18px;
-          }
-
-          .task-field {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            font-size: 13px;
-            font-weight: 700;
-          }
-
-          .task-field-full {
-            grid-column: 1 / -1;
-          }
-
-          .task-field input,
-          .task-field select,
-          .task-field textarea,
-          .task-search-input {
-            width: 100%;
-            min-height: 44px;
-            padding: 11px 13px;
-            border-radius: 11px;
-            border: 1px solid var(--border);
-            background: var(--surface);
-            color: var(--text);
-            font: inherit;
-            outline: none;
-            transition:
-              border-color 0.2s ease,
-              box-shadow 0.2s ease;
-          }
-
-          .task-field textarea {
-            min-height: 105px;
-            resize: vertical;
-          }
-
-          .task-field input:focus,
-          .task-field select:focus,
-          .task-field textarea:focus,
-          .task-search-input:focus {
-            border-color: #0f766e;
-            box-shadow:
-              0 0 0 3px rgba(15, 118, 110, 0.12);
-          }
-
-          .employee-search-results {
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            max-height: 230px;
-            overflow-y: auto;
-            background: var(--surface);
-          }
-
-          .employee-option {
-            width: 100%;
-            border: 0;
-            border-bottom: 1px solid var(--border);
-            background: transparent;
-            padding: 12px;
-            text-align: left;
-            cursor: pointer;
-            color: var(--text);
-          }
-
-          .employee-option:last-child {
-            border-bottom: 0;
-          }
-
-          .employee-option:hover,
-          .employee-option-selected {
-            background: var(--surface-muted);
-          }
-
-          .employee-option-name {
-            display: block;
-            font-weight: 700;
-            margin-bottom: 4px;
-          }
-
-          .employee-option-details {
-            display: block;
-            color: var(--text-muted);
-            font-size: 12px;
-          }
-
-          .selected-employee {
-            margin-top: 10px;
-            border-radius: 11px;
-            padding: 11px 13px;
-            background: rgba(15, 118, 110, 0.1);
-            color: #0f766e;
-            font-size: 13px;
-            font-weight: 700;
-          }
-
-          .task-search-wrap {
-            position: relative;
-            width: min(360px, 100%);
-          }
-
-          .task-search-wrap svg {
-            position: absolute;
-            left: 13px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: var(--text-muted);
-          }
-
-          .task-search-input {
-            padding-left: 42px;
-          }
-
-          .task-list {
-            display: grid;
-            gap: 16px;
-          }
-
-          .task-item {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 17px;
-            padding: 18px;
-          }
-
-          .task-item-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            gap: 14px;
-            margin-bottom: 14px;
-            flex-wrap: wrap;
-          }
-
-          .task-title {
-            margin: 0 0 6px;
-            font-size: 17px;
-          }
-
-          .task-description {
-            margin: 0;
-            color: var(--text-muted);
-            font-size: 13px;
-            line-height: 1.6;
-          }
-
-          .task-meta-grid {
-            display: grid;
-            grid-template-columns:
-              repeat(auto-fit, minmax(160px, 1fr));
-            gap: 12px;
-            margin: 16px 0;
-          }
-
-          .task-meta-item {
-            background: var(--surface-muted);
-            padding: 11px 12px;
-            border-radius: 11px;
-          }
-
-          .task-meta-label {
-            display: block;
-            font-size: 11px;
-            color: var(--text-muted);
-            margin-bottom: 5px;
-          }
-
-          .task-meta-value {
-            font-size: 13px;
-            font-weight: 700;
-          }
-
-          .task-controls {
-            display: grid;
-            grid-template-columns:
-              minmax(150px, 220px)
-              minmax(200px, 1fr)
-              auto;
-            gap: 14px;
-            align-items: end;
-            padding-top: 15px;
-            border-top: 1px solid var(--border);
-          }
-
-          .task-progress-row {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-          }
-
-          .task-progress-row input {
-            width: 100%;
-          }
-
-          .task-update-button {
-            min-height: 42px;
-            white-space: nowrap;
-          }
-
-          @media (max-width: 760px) {
-            .task-form-grid {
-              grid-template-columns: 1fr;
-            }
-
-            .task-field-full {
-              grid-column: auto;
-            }
-
-            .task-controls {
-              grid-template-columns: 1fr;
-            }
-
-            .task-update-button {
-              width: 100%;
-            }
-          }
-        `}
-      </style>
-
-      <div className="tasks-page-header">
-        <div>
-          <h1 className="page-title">
-            {canAssignTasks
-              ? 'Task Management'
-              : 'My Tasks'}
-          </h1>
-
-          <p className="page-subtitle">
-            {canAssignTasks
-              ? 'Assign work to employees and monitor progress.'
-              : 'View your assigned work and update progress.'}
-          </p>
-        </div>
-
-        <div className="task-search-wrap">
-          <Search size={18} />
-
-          <input
-            type="search"
-            className="task-search-input"
-            placeholder="Search tasks or employees..."
-            value={taskSearch}
-            onInput={(event) =>
-              setTaskSearch(event.currentTarget.value)
-            }
-            autoComplete="off"
-            aria-label="Search tasks"
-          />
-        </div>
-      </div>
-
-      {message && (
-        <div className="message message-success">
-          {message}
-        </div>
-      )}
-
-      {error && (
-        <div className="message message-error">
-          {error}
-        </div>
-      )}
-
-      <div className="tasks-summary">
-        <div className="task-summary-card">
-          <div className="task-summary-icon">
-            <ListTodo size={21} />
-          </div>
-
-          <div>
-            <div className="stat-label">
-              Total Tasks
-            </div>
-
-            <div className="stat-value">
-              {tasks.length}
-            </div>
-          </div>
-        </div>
-
-        <div className="task-summary-card">
-          <div className="task-summary-icon">
-            <CalendarDays size={21} />
-          </div>
-
-          <div>
-            <div className="stat-label">
-              Pending
-            </div>
-
-            <div className="stat-value">
-              {
-                tasks.filter(
-                  (task) =>
-                    task.status === 'PENDING'
-                ).length
-              }
-            </div>
-          </div>
-        </div>
-
-        <div className="task-summary-card">
-          <div className="task-summary-icon">
-            <CheckCircle2 size={21} />
-          </div>
-
-          <div>
-            <div className="stat-label">
-              Completed
-            </div>
-
-            <div className="stat-value">
-              {
-                tasks.filter(
-                  (task) =>
-                    task.status === 'COMPLETED'
-                ).length
-              }
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {canAssignTasks && (
-        <form
-          className="card task-form-card"
-          onSubmit={createTask}
-        >
-          <div className="section-heading">
-            <div>
-              <h2>Assign New Task</h2>
-
-              <p className="page-subtitle">
-                Search and select an employee, then add
-                the task details.
-              </p>
-            </div>
-
-            <Send size={21} />
-          </div>
-
-          <div className="task-form-grid">
-            <label className="task-field">
-              Task Title
-
-              <input
-                type="text"
-                name="title"
-                placeholder="Example: Source candidates for Office Boy"
-                value={taskForm.title}
-                onChange={handleTaskFormChange}
-                required
-              />
-            </label>
-
-            <label className="task-field">
-              Priority
-
-              <select
-                name="priority"
-                value={taskForm.priority}
-                onChange={handleTaskFormChange}
-              >
-                {priorityOptions.map((priority) => (
-                  <option
-                    key={priority}
-                    value={priority}
-                  >
-                    {formatText(priority)}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="task-field">
-              Due Date and Time
-
-              <input
-                type="datetime-local"
-                name="dueDate"
-                value={taskForm.dueDate}
-                onChange={handleTaskFormChange}
-              />
-            </label>
-
-            <div className="task-field">
-              Search Employee
-
-              <input
-                type="search"
-                placeholder="Search by name, ID or department"
-                value={employeeSearch}
-                onInput={(event) =>
-                  setEmployeeSearch(event.currentTarget.value)
-                }
-                autoComplete="off"
-                aria-label="Search employees for task assignment"
-              />
-
-              <div className="employee-search-results">
-                {filteredEmployees.map((employee) => {
-                  const selected =
-                    Number(taskForm.assignedTo) ===
-                    employee.id;
-
-                  return (
-                    <button
-                      type="button"
-                      key={employee.id}
-                      className={`employee-option ${
-                        selected
-                          ? 'employee-option-selected'
-                          : ''
-                      }`}
-                      onClick={() =>
-                        setTaskForm((current) => ({
-                          ...current,
-                          assignedTo: String(
-                            employee.id
-                          )
-                        }))
-                      }
-                    >
-                      <span className="employee-option-name">
-                        {employee.full_name}
-                      </span>
-
-                      <span className="employee-option-details">
-                        {employee.employee_id}
-                        {employee.designation
-                          ? ` • ${employee.designation}`
-                          : ''}
-                        {employee.department
-                          ? ` • ${employee.department}`
-                          : ''}
-                      </span>
-                    </button>
-                  );
-                })}
-
-                {!filteredEmployees.length && (
-                  <div
-                    style={{
-                      padding: 14,
-                      color: 'var(--text-muted)',
-                      fontSize: 13
-                    }}
-                  >
-                    No employees found.
-                  </div>
-                )}
-              </div>
-
-              {taskForm.assignedTo && (
-                <div className="selected-employee">
-                  <UserRound
-                    size={15}
-                    style={{
-                      marginRight: 6,
-                      verticalAlign: 'middle'
-                    }}
-                  />
-
-                  Assigned to:{' '}
-                  {
-                    employees.find(
-                      (employee) =>
-                        employee.id ===
-                        Number(
-                          taskForm.assignedTo
-                        )
-                    )?.full_name
-                  }
-                </div>
-              )}
-            </div>
-
-            <label className="task-field task-field-full">
-              Description
-
-              <textarea
-                name="description"
-                placeholder="Add complete instructions, client name, requirement and expected result."
-                value={taskForm.description}
-                onChange={handleTaskFormChange}
-              />
-            </label>
-          </div>
-
-          <button
-            type="submit"
-            className="button"
-            disabled={creating}
-            style={{ marginTop: 18 }}
-          >
-            {creating
-              ? 'Assigning...'
-              : 'Assign Task'}
-          </button>
-        </form>
-      )}
-
-      <div className="task-list">
-        {filteredTasks.map((task) => (
-          <article
-            className="task-item"
-            key={task.id}
-          >
-            <div className="task-item-header">
-              <div>
-                <h3 className="task-title">
-                  {task.title}
-                </h3>
-
-                <p className="task-description">
-                  {task.description ||
-                    'No task description provided.'}
-                </p>
-              </div>
-
-              <span
-                className={`badge badge-${String(
-                  task.priority || 'MEDIUM'
-                ).toLowerCase()}`}
-              >
-                {formatText(task.priority)}
-              </span>
-            </div>
-
-            <div className="task-meta-grid">
-              <div className="task-meta-item">
-                <span className="task-meta-label">
-                  Assigned To
-                </span>
-
-                <span className="task-meta-value">
-                  {task.assignee_name || '—'}
-                </span>
-              </div>
-
-              <div className="task-meta-item">
-                <span className="task-meta-label">
-                  Assigned By
-                </span>
-
-                <span className="task-meta-value">
-                  {task.assigned_by_name || '—'}
-                </span>
-              </div>
-
-              <div className="task-meta-item">
-                <span className="task-meta-label">
-                  Deadline
-                </span>
-
-                <span className="task-meta-value">
-                  {formatDate(task.due_date)}
-                </span>
-              </div>
-
-              <div className="task-meta-item">
-                <span className="task-meta-label">
-                  Current Status
-                </span>
-
-                <span className="task-meta-value">
-                  {formatText(task.status)}
-                </span>
-              </div>
-            </div>
-
-            <div className="task-controls">
-              <label className="task-field">
-                Status
-
-                <select
-                  value={task.status || 'PENDING'}
-                  onChange={(event) =>
-                    updateLocalTask(
-                      task.id,
-                      'status',
-                      event.target.value
-                    )
-                  }
-                >
-                  {statusOptions.map((option) => (
-                    <option
-                      key={option.value}
-                      value={option.value}
-                    >
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="task-field">
-                Progress
-
-                <div className="task-progress-row">
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={Number(
-                      task.progress || 0
-                    )}
-                    disabled={
-                      task.status === 'PENDING' ||
-                      task.status === 'COMPLETED'
-                    }
-                    onChange={(event) =>
-                      updateLocalTask(
-                        task.id,
-                        'progress',
-                        Number(
-                          event.target.value
-                        )
-                      )
-                    }
-                  />
-
-                  <strong>
-                    {Number(task.progress || 0)}%
-                  </strong>
-                </div>
-              </label>
-
-              <button
-                type="button"
-                className="button task-update-button"
-                disabled={
-                  savingTaskId === task.id
-                }
-                onClick={() =>
-                  saveTaskStatus(task)
-                }
-              >
-                {savingTaskId === task.id
-                  ? 'Saving...'
-                  : 'Update Task'}
-              </button>
-            </div>
-          </article>
-        ))}
-
-        {!filteredTasks.length && (
-          <div className="card">
-            No tasks found.
-          </div>
-        )}
-      </div>
-    </>
-  );
+  async function updateStatus(task, nextStatus, progress) {
+    try { const response = await api.patch(`/tasks/${task.id}/status`, { status: nextStatus, progress: Number(progress) }); setMessage(response.data.message); await loadTasks(); }
+    catch (requestError) { setError(requestError.response?.data?.message || 'Task status could not be updated.'); }
+  }
+
+  async function viewHistory(task) {
+    try { const response = await api.get(`/tasks/${task.id}/history`); setSelected(task); setHistory(response.data.data || { history: [], extensions: [], attachments: [] }); }
+    catch (requestError) { setError(requestError.response?.data?.message || 'Task history could not be loaded.'); }
+  }
+
+  async function requestExtension(event) {
+    event.preventDefault();
+    try { setSaving(true); const response = await api.post(`/tasks/${extensionTask.id}/extensions`, extensionForm); setMessage(response.data.message); setExtensionTask(null); await loadTasks(); }
+    catch (requestError) { setError(requestError.response?.data?.message || 'Extension request could not be submitted.'); }
+    finally { setSaving(false); }
+  }
+
+  async function reviewExtension(extensionId, decision) {
+    const reviewerComment = window.prompt(`${decision === 'APPROVED' ? 'Approval' : 'Rejection'} comment (optional):`) || '';
+    try { const response = await api.patch(`/tasks/extensions/${extensionId}`, { decision, reviewerComment }); setMessage(response.data.message); if (selected) await viewHistory(selected); await loadTasks(); }
+    catch (requestError) { setError(requestError.response?.data?.message || 'Extension could not be reviewed.'); }
+  }
+
+  async function uploadAttachment(task, file) {
+    if (!file) return;
+    try { const response = await api.post(`/tasks/${task.id}/attachments`, { attachment: await filePayload(file) }); setMessage(response.data.message); if (selected?.id === task.id) await viewHistory(task); await loadTasks(); }
+    catch (requestError) { setError(requestError.response?.data?.message || requestError.message || 'Attachment could not be uploaded.'); }
+  }
+
+  async function downloadAttachment(attachment) {
+    try { const response = await api.get(`/tasks/attachments/${attachment.id}/download`, { responseType: 'blob' }); const url = URL.createObjectURL(response.data); const link = document.createElement('a'); link.href = url; link.download = attachment.file_name; link.click(); URL.revokeObjectURL(url); }
+    catch (requestError) { setError(requestError.response?.data?.message || 'Attachment could not be downloaded.'); }
+  }
+
+  async function removeTask(task) {
+    if (!window.confirm(`Delete task "${task.title}"?`)) return;
+    try { const response = await api.delete(`/tasks/${task.id}`); setMessage(response.data.message); await loadTasks(); }
+    catch (requestError) { setError(requestError.response?.data?.message || 'Task could not be deleted.'); }
+  }
+
+  return <div className="module-page">
+    <div className="page-heading-row"><div><p className="eyebrow">Work Management</p><h1 className="page-title">Tasks</h1><p className="page-subtitle">Edit assignments, extend deadlines, record history and exchange task attachments.</p></div>{canManage && <button className="btn btn-primary" onClick={openCreate}><Plus size={18}/> Assign Task</button>}</div>
+    {message && <div className="message message-success">{message}</div>}{error && <div className="message message-error">{error}</div>}
+    <div className="summary-grid summary-grid-4"><div className="summary-card"><span>Total</span><strong>{summary.total}</strong></div><div className="summary-card warning"><span>Pending</span><strong>{summary.pending}</strong></div><div className="summary-card"><span>In Progress</span><strong>{summary.progress}</strong></div><div className="summary-card danger"><span>Overdue</span><strong>{summary.overdue}</strong></div></div>
+
+    {showForm && <form className="card form-card" onSubmit={saveTask}><div className="section-heading"><div><h2>{editing ? 'Edit Task' : 'Assign Task'}</h2><p className="page-subtitle">Every changed value, including an extended due date, is saved in the task history.</p></div><button className="icon-btn" type="button" onClick={() => setShowForm(false)}><X size={20}/></button></div><div className="form-grid form-grid-3"><label className="form-group form-span-2"><span>Task Title *</span><input className="input" name="title" value={form.title} onChange={setField} required /></label><label className="form-group"><span>Assigned Employee *</span><select className="input" name="assignedTo" value={form.assignedTo} onChange={setField} required><option value="">Select employee</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name} {employee.employee_id ? `(${employee.employee_id})` : ''}</option>)}</select></label><label className="form-group form-span-3"><span>Description</span><textarea className="input" rows="3" name="description" value={form.description} onChange={setField}/></label><label className="form-group"><span>Start Date</span><input className="input" type="datetime-local" name="startDate" value={form.startDate} onChange={setField}/></label><label className="form-group"><span>Due Date</span><input className="input" type="datetime-local" name="dueDate" value={form.dueDate} onChange={setField}/></label><label className="form-group"><span>Priority</span><select className="input" name="priority" value={form.priority} onChange={setField}>{priorities.map((item) => <option key={item} value={item}>{label(item)}</option>)}</select></label>{editing && <><label className="form-group"><span>Status</span><select className="input" name="status" value={form.status} onChange={setField}>{statuses.map((item) => <option key={item} value={item}>{label(item)}</option>)}</select></label><label className="form-group"><span>Progress %</span><input className="input" type="number" min="0" max="100" name="progress" value={form.progress} onChange={setField}/></label><label className="form-group"><span>Reason for Due-Date Change{localDateTime(editing?.due_date) !== form.dueDate ? ' *' : ''}</span><input className="input" name="extensionReason" value={form.extensionReason} onChange={setField} required={localDateTime(editing?.due_date) !== form.dueDate}/></label></>}<label className="form-group form-span-2"><span>Remarks</span><input className="input" name="remarks" value={form.remarks} onChange={setField}/></label><label className="form-group"><span>Attachment (max 5 MB)</span><input className="input" type="file" name="attachment" onChange={setField}/></label></div><div className="form-actions"><button className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Save Task'}</button><button className="btn btn-secondary" type="button" onClick={() => setShowForm(false)}>Cancel</button></div></form>}
+
+    <div className="card toolbar"><div className="search-box"><Search size={18}/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search task, employee or department" /></div><select className="input compact-select" value={status} onChange={(event) => setStatus(event.target.value)}><option value="">All Statuses</option>{statuses.map((item) => <option key={item} value={item}>{label(item)}</option>)}</select></div>
+    <div className="task-grid">{loading ? <div className="card">Loading tasks...</div> : tasks.length === 0 ? <div className="card empty-state">No tasks found.</div> : tasks.map((task) => <article className={`card task-card task-priority-${String(task.priority).toLowerCase()}`} key={task.id}><div className="task-card-head"><div><span className="status-badge">{label(task.priority)}</span><h3>{task.title}</h3><p>{task.description || 'No description'}</p></div><div className="row-actions">{canManage && <button className="icon-btn" title="Edit task" onClick={() => openEdit(task)}><Pencil size={16}/></button>}<button className="icon-btn" title="History" onClick={() => viewHistory(task)}><Eye size={16}/></button>{canManage && <button className="icon-btn danger" title="Delete" onClick={() => removeTask(task)}><Trash2 size={16}/></button>}</div></div><div className="task-meta"><span><b>Assigned:</b> {task.assignee_name}</span><span><b>Due:</b> {formatDate(task.due_date)}</span><span><b>Status:</b> {label(task.status)}</span><span><b>Progress:</b> {task.progress || 0}%</span></div><div className="progress-track"><div style={{ width: `${Number(task.progress || 0)}%` }}/></div><div className="task-actions"><select className="input" value={task.status} onChange={(event) => { const next = event.target.value; const progress = next === 'COMPLETED' ? 100 : next === 'PENDING' || next === 'CANCELLED' ? 0 : Math.min(Math.max(Number(task.progress || 1), 1), 99); updateStatus(task, next, progress); }}>{statuses.map((item) => <option key={item} value={item}>{label(item)}</option>)}</select><input className="input" type="number" min="0" max="100" defaultValue={task.progress || 0} key={`${task.id}-${task.progress}`} onBlur={(event) => { const progress = Math.min(Math.max(Number(event.target.value || 0), 0), 100); const nextStatus = task.status === 'BLOCKED' ? 'BLOCKED' : progress === 0 ? 'PENDING' : progress === 100 ? 'COMPLETED' : 'IN_PROGRESS'; updateStatus(task, nextStatus, progress); }}/><button className="btn btn-secondary" onClick={() => { if (canManage) openEdit(task); else { setExtensionTask(task); setExtensionForm({ requestedDueDate: '', reason: '' }); } }}><CalendarClock size={16}/> {canManage ? 'Edit Deadline' : 'Request Extension'}</button><label className="btn btn-secondary file-button"><FileUp size={16}/> Attach<input type="file" hidden onChange={(event) => uploadAttachment(task, event.target.files?.[0])}/></label></div>{task.extension_status && <div className={`extension-banner status-${String(task.extension_status).toLowerCase()}`}>Latest extension: {label(task.extension_status)} {task.requested_due_date ? `until ${formatDate(task.requested_due_date)}` : ''}</div>}</article>)}</div>
+
+    {extensionTask && <div className="modal-overlay"><form className="modal-card" onSubmit={requestExtension}><div className="section-heading"><h2>Request Due-Date Extension</h2><button className="icon-btn" type="button" onClick={() => setExtensionTask(null)}><X size={20}/></button></div><p><b>{extensionTask.title}</b><br/>Current due date: {formatDate(extensionTask.due_date)}</p><label className="form-group"><span>New Due Date *</span><input className="input" type="datetime-local" value={extensionForm.requestedDueDate} onChange={(event) => setExtensionForm((current) => ({ ...current, requestedDueDate: event.target.value }))} required /></label><label className="form-group"><span>Reason *</span><textarea className="input" rows="3" value={extensionForm.reason} onChange={(event) => setExtensionForm((current) => ({ ...current, reason: event.target.value }))} required /></label><button className="btn btn-primary" disabled={saving}>Submit Request</button></form></div>}
+
+    {selected && <div className="modal-overlay"><div className="modal-card modal-wide"><div className="section-heading"><div><h2>{selected.title} — History</h2><p className="page-subtitle">Original values and every later change remain visible.</p></div><button className="icon-btn" onClick={() => setSelected(null)}><X size={20}/></button></div><h3>Extension Requests</h3><div className="history-list">{history.extensions.length === 0 ? <p className="empty-copy">No extension requests.</p> : history.extensions.map((item) => <div className="history-row" key={item.id}><div><strong>{label(item.status)} — {formatDate(item.requested_due_date)}</strong><span>{item.requested_by_name}: {item.reason}</span></div>{canManage && item.status === 'PENDING' && Number(item.requested_by) !== Number(user.id) && <div className="row-actions"><button className="btn btn-primary btn-small" onClick={() => reviewExtension(item.id, 'APPROVED')}>Approve</button><button className="btn btn-secondary btn-small" onClick={() => reviewExtension(item.id, 'REJECTED')}>Reject</button></div>}</div>)}</div><h3>Attachments</h3><div className="history-list">{history.attachments.length === 0 ? <p className="empty-copy">No attachments.</p> : history.attachments.map((item) => <div className="history-row" key={item.id}><div><strong>{item.file_name}</strong><span>Uploaded by {item.uploaded_by_name || 'Employee'} · {formatDate(item.created_at)}</span></div><button className="icon-btn" onClick={() => downloadAttachment(item)}><Download size={16}/></button></div>)}</div><h3>Change History</h3><div className="history-list">{history.history.map((item) => <div className="history-row" key={item.id}><div><strong>{label(item.change_type)} {item.field_name ? `— ${item.field_name}` : ''}</strong><span>{item.changed_by_name || 'System'} · {formatDate(item.created_at)}{item.old_value || item.new_value ? ` · ${item.old_value || '—'} → ${item.new_value || '—'}` : ''}{item.reason ? ` · ${item.reason}` : ''}</span></div></div>)}</div></div></div>}
+  </div>;
 }

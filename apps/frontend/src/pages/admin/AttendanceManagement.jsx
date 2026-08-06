@@ -1,490 +1,53 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState
-} from 'react';
-import {
-  Clock3,
-  Search,
-  RefreshCw,
-  CalendarDays,
-  Users,
-  UserCheck,
-  UserX
-} from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { RefreshCw, X } from 'lucide-react';
 import api from '../../services/api.js';
-import useDebouncedValue from '../../hooks/useDebouncedValue.js';
+import AttendanceCalendar from '../../components/AttendanceCalendar.jsx';
 
-function formatTime(value) {
-  if (!value) return '—';
-
-  return new Intl.DateTimeFormat('en-IN', {
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(new Date(value));
-}
-
-function formatDate(value) {
-  if (!value) return '—';
-
-  return new Intl.DateTimeFormat('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric'
-  }).format(new Date(value));
-}
-
-function formatDuration(minutes = 0) {
-  const total = Number(minutes || 0);
-  const hours = Math.floor(total / 60);
-  const remainingMinutes = total % 60;
-
-  return `${hours}h ${remainingMinutes}m`;
-}
-
-function getToday() {
-  return new Date().toISOString().slice(0, 10);
-}
+const statuses = ['PRESENT','ABSENT','HOLIDAY','LEAVE','HALF_DAY','WEEK_OFF','MISSING_PUNCH'];
+const label = (value) => String(value || '').replaceAll('_',' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+const inputDateTime = (date, value) => value ? new Date(value).toISOString().slice(0, 16) : `${date}T09:30`;
+const formatTime = (value) => value ? new Date(value).toLocaleString('en-IN') : '—';
 
 export default function AttendanceManagement() {
-  const [records, setRecords] = useState([]);
-  const [date, setDate] = useState(getToday());
-  const [status, setStatus] = useState('');
-  const [search, setSearch] = useState('');
+  const [employees, setEmployees] = useState([]);
+  const [employeeId, setEmployeeId] = useState('');
+  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [data, setData] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [edit, setEdit] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  const debouncedSearch = useDebouncedValue(search, 300);
-
-  const loadAttendance = useCallback(async ({ silent = false } = {}) => {
-    try {
-      if (!silent) {
-        setLoading(true);
-      }
-
-      setError('');
-
-      const params = {};
-
-      if (date) {
-        params.date = date;
-      }
-
-      if (status) {
-        params.status = status;
-      }
-
-      if (debouncedSearch.trim()) {
-        params.search = debouncedSearch.trim();
-      }
-
-      const response = await api.get('/attendance', { params });
-
-      setRecords(response.data.data || []);
-    } catch (requestError) {
-      setError(
-        requestError.response?.data?.message ||
-          'Unable to load attendance records.'
-      );
-    } finally {
-      if (!silent) {
-        setLoading(false);
-      }
-    }
-  }, [date, status, debouncedSearch]);
-
   useEffect(() => {
-    loadAttendance();
-  }, [loadAttendance]);
+    api.get('/employees').then((response) => { const list = response.data.data || []; setEmployees(list); if (list.length) setEmployeeId(String(list[0].id)); }).catch((requestError) => setError(requestError.response?.data?.message || 'Employees could not be loaded.'));
+  }, []);
 
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      loadAttendance({ silent: true });
-    }, 15000);
+  const load = useCallback(async () => {
+    if (!employeeId) return;
+    try { setLoading(true); const response = await api.get('/attendance/calendar', { params: { employeeId, month } }); setData(response.data.data); }
+    catch (requestError) { setError(requestError.response?.data?.message || 'Attendance calendar could not be loaded.'); }
+    finally { setLoading(false); }
+  }, [employeeId, month]);
+  useEffect(() => { load(); }, [load]);
 
-    const handleFocus = () => {
-      loadAttendance({ silent: true });
-    };
+  function openDay(date, item) {
+    const record = item || { date, status: 'ABSENT', punchIn: null, punchOut: null, remarks: '' };
+    setSelected(record);
+    setEdit({ employeeId, date, status: record.status === 'FUTURE' || record.status === 'NOT_MARKED' ? 'PRESENT' : record.status, punchIn: inputDateTime(date, record.punchIn), punchOut: record.punchOut ? inputDateTime(date, record.punchOut) : '', remarks: record.remarks || '' });
+  }
 
-    window.addEventListener('focus', handleFocus);
+  async function save(event) {
+    event.preventDefault();
+    try { const response = await api.put('/attendance/admin-adjust', edit); setMessage(response.data.message); setSelected(null); await load(); }
+    catch (requestError) { setError(requestError.response?.data?.message || 'Attendance could not be updated.'); }
+  }
 
-    return () => {
-      window.clearInterval(interval);
-      window.removeEventListener('focus', handleFocus);
-    };
-  }, [loadAttendance]);
-
-  const filteredRecords = records;
-
-  const summary = useMemo(() => {
-    return {
-      total: filteredRecords.length,
-      present: filteredRecords.filter(
-        (record) => record.status === 'PRESENT'
-      ).length,
-      halfDay: filteredRecords.filter(
-        (record) => record.status === 'HALF_DAY'
-      ).length,
-      absent: filteredRecords.filter(
-        (record) => record.status === 'ABSENT'
-      ).length
-    };
-  }, [filteredRecords]);
-
-  return (
-    <div className="attendance-page">
-      <div className="section-heading">
-        <div>
-          <h1 className="page-title">
-            Attendance Management
-          </h1>
-
-          <p className="page-subtitle">
-            View employee punch records and live working time.
-          </p>
-        </div>
-
-        <button
-          type="button"
-          className="btn btn-secondary"
-          onClick={async () => {
-            setRefreshing(true);
-            await loadAttendance({ silent: true });
-            setRefreshing(false);
-          }}
-          disabled={loading || refreshing}
-        >
-          <RefreshCw
-            size={17}
-            className={refreshing ? 'refresh-spin' : ''}
-          />
-          {refreshing ? 'Refreshing...' : 'Refresh'}
-        </button>
-      </div>
-
-      {error && (
-        <div
-          className="message message-error"
-          style={{ marginBottom: 16 }}
-        >
-          {error}
-        </div>
-      )}
-
-      <div className="attendance-summary-grid">
-        <div className="attendance-summary-card">
-          <Users size={22} />
-
-          <div>
-            <span>Total Records</span>
-            <strong>{summary.total}</strong>
-          </div>
-        </div>
-
-        <div className="attendance-summary-card">
-          <UserCheck size={22} />
-
-          <div>
-            <span>Present</span>
-            <strong>{summary.present}</strong>
-          </div>
-        </div>
-
-        <div className="attendance-summary-card">
-          <Clock3 size={22} />
-
-          <div>
-            <span>Half Day</span>
-            <strong>{summary.halfDay}</strong>
-          </div>
-        </div>
-
-        <div className="attendance-summary-card">
-          <UserX size={22} />
-
-          <div>
-            <span>Absent</span>
-            <strong>{summary.absent}</strong>
-          </div>
-        </div>
-      </div>
-
-      <div className="card attendance-filter-card">
-        <div className="attendance-filter-grid">
-          <label>
-            <span>Date</span>
-
-            <div className="attendance-input-wrap">
-              <CalendarDays size={17} />
-
-              <input
-                type="date"
-                value={date}
-                onChange={(event) =>
-                  setDate(event.target.value)
-                }
-              />
-            </div>
-          </label>
-
-          <label>
-            <span>Status</span>
-
-            <select
-              value={status}
-              onChange={(event) =>
-                setStatus(event.target.value)
-              }
-            >
-              <option value="">All Statuses</option>
-              <option value="PRESENT">Present</option>
-              <option value="HALF_DAY">Half Day</option>
-              <option value="ABSENT">Absent</option>
-              <option value="LEAVE">Leave</option>
-              <option value="WEEK_OFF">Week Off</option>
-              <option value="HOLIDAY">Holiday</option>
-              <option value="MISSING_PUNCH">Missing Punch</option>
-            </select>
-          </label>
-
-          <label>
-            <span>Search Employee</span>
-
-            <div className="attendance-input-wrap">
-              <Search size={17} />
-
-              <input
-                type="text"
-                value={search}
-                onInput={(event) =>
-                  setSearch(event.currentTarget.value)
-                }
-                placeholder="Name, ID or designation"
-                autoComplete="off"
-                aria-label="Search attendance employees"
-              />
-            </div>
-          </label>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Employee</th>
-                <th>Date</th>
-                <th>Punch In</th>
-                <th>Punch Out</th>
-                <th>Working Time</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {filteredRecords.map((record) => (
-                <tr key={record.id}>
-                  <td>
-                    <strong>
-                      {record.employee_name || '—'}
-                    </strong>
-
-                    <div className="attendance-employee-meta">
-                      {record.employee_code || '—'}
-                      {record.designation
-                        ? ` · ${record.designation}`
-                        : ''}
-                    </div>
-                  </td>
-
-                  <td>
-                    {formatDate(record.attendance_date)}
-                  </td>
-
-                  <td>{formatTime(record.punch_in)}</td>
-
-                  <td>{formatTime(record.punch_out)}</td>
-
-                  <td>
-                    <strong>
-                      {formatDuration(
-                        record.total_work_minutes
-                      )}
-                    </strong>
-
-                    {!record.punch_out &&
-                      record.punch_in && (
-                        <div className="attendance-live">
-                          Live
-                        </div>
-                      )}
-                  </td>
-
-                  <td>
-                    <span
-                      className={`badge badge-${String(
-                        record.status || ''
-                      ).toLowerCase()}`}
-                    >
-                      {record.status || '—'}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-
-              {!loading &&
-                filteredRecords.length === 0 && (
-                  <tr>
-                    <td colSpan="6">
-                      No attendance records found.
-                    </td>
-                  </tr>
-                )}
-
-              {loading && (
-                <tr>
-                  <td colSpan="6">
-                    Loading attendance records...
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <style>{`
-        .attendance-page {
-          padding: 28px;
-        }
-
-        .refresh-spin {
-          animation: attendance-spin 0.8s linear infinite;
-        }
-
-        @keyframes attendance-spin {
-          to { transform: rotate(360deg); }
-        }
-
-        .attendance-summary-grid {
-          display: grid;
-          grid-template-columns: repeat(4, minmax(0, 1fr));
-          gap: 16px;
-          margin-bottom: 20px;
-        }
-
-        .attendance-summary-card {
-          display: flex;
-          align-items: center;
-          gap: 14px;
-          padding: 20px;
-          background: #ffffff;
-          border: 1px solid #eaecf0;
-          border-radius: 16px;
-          box-shadow: 0 8px 24px rgba(16, 24, 40, 0.05);
-        }
-
-        .attendance-summary-card svg {
-          color: #0f766e;
-        }
-
-        .attendance-summary-card span {
-          display: block;
-          color: #667085;
-          font-size: 13px;
-        }
-
-        .attendance-summary-card strong {
-          display: block;
-          margin-top: 4px;
-          color: #182230;
-          font-size: 24px;
-        }
-
-        .attendance-filter-card {
-          margin-bottom: 20px;
-        }
-
-        .attendance-filter-grid {
-          display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 16px;
-        }
-
-        .attendance-filter-grid label {
-          display: flex;
-          flex-direction: column;
-          gap: 7px;
-          color: #344054;
-          font-size: 13px;
-          font-weight: 650;
-        }
-
-        .attendance-filter-grid input,
-        .attendance-filter-grid select {
-          width: 100%;
-          min-height: 44px;
-          border: 1px solid #d0d5dd;
-          border-radius: 10px;
-          background: #ffffff;
-          padding: 10px 12px;
-          box-sizing: border-box;
-          outline: none;
-        }
-
-        .attendance-input-wrap {
-          position: relative;
-        }
-
-        .attendance-input-wrap svg {
-          position: absolute;
-          top: 50%;
-          left: 12px;
-          color: #667085;
-          transform: translateY(-50%);
-          pointer-events: none;
-        }
-
-        .attendance-input-wrap input {
-          padding-left: 38px;
-        }
-
-        .attendance-employee-meta {
-          margin-top: 4px;
-          color: #667085;
-          font-size: 12px;
-        }
-
-        .attendance-live {
-          margin-top: 3px;
-          color: #0f766e;
-          font-size: 11px;
-          font-weight: 700;
-        }
-
-        @media (max-width: 1000px) {
-          .attendance-summary-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-          }
-
-          .attendance-filter-grid {
-            grid-template-columns: 1fr;
-          }
-        }
-
-        @media (max-width: 600px) {
-          .attendance-page {
-            padding: 16px;
-          }
-
-          .attendance-summary-grid {
-            grid-template-columns: 1fr;
-          }
-        }
-      `}</style>
-    </div>
-  );
+  const summary = data?.summary || {};
+  return <div className="module-page"><div className="page-heading-row"><div><p className="eyebrow">Attendance Management</p><h1 className="page-title">Employee Attendance Calendar</h1><p className="page-subtitle">Present is green, absent red, holiday blue, leave yellow and half day orange.</p></div><button className="btn btn-secondary" onClick={load}><RefreshCw size={17}/> Refresh</button></div>
+    {message && <div className="message message-success">{message}</div>}{error && <div className="message message-error">{error}</div>}
+    <div className="card attendance-calendar-filter"><label className="form-group"><span>Employee</span><select className="input" value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}><option value="">Select employee</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name} ({employee.employee_id || employee.role})</option>)}</select></label><div className="attendance-summary-inline"><span>Present <b>{summary.PRESENT || 0}</b></span><span>Absent <b>{summary.ABSENT || 0}</b></span><span>Leave <b>{summary.LEAVE || 0}</b></span><span>Holiday <b>{summary.HOLIDAY || 0}</b></span><span>Half Day <b>{summary.HALF_DAY || 0}</b></span></div></div>
+    {loading ? <div className="card">Loading attendance calendar...</div> : data && <AttendanceCalendar data={data} month={month} setMonth={setMonth} selectedDate={selected?.date} onSelectDate={openDay}/>} 
+    {selected && <div className="modal-overlay"><form className="modal-card" onSubmit={save}><div className="section-heading"><div><h2>Attendance — {selected.date}</h2><p className="page-subtitle">Current punch: {formatTime(selected.punchIn)} to {formatTime(selected.punchOut)}</p></div><button className="icon-btn" type="button" onClick={() => setSelected(null)}><X size={20}/></button></div><label className="form-group"><span>Status</span><select className="input" value={edit.status} onChange={(event) => setEdit((current) => ({ ...current, status: event.target.value }))}>{statuses.map((item) => <option key={item} value={item}>{label(item)}</option>)}</select></label><label className="form-group"><span>Punch In</span><input className="input" type="datetime-local" value={edit.punchIn} onChange={(event) => setEdit((current) => ({ ...current, punchIn: event.target.value }))}/></label><label className="form-group"><span>Punch Out</span><input className="input" type="datetime-local" value={edit.punchOut} onChange={(event) => setEdit((current) => ({ ...current, punchOut: event.target.value }))}/></label><label className="form-group"><span>Remarks</span><textarea className="input" rows="3" value={edit.remarks} onChange={(event) => setEdit((current) => ({ ...current, remarks: event.target.value }))}/></label><button className="btn btn-primary">Save Attendance</button></form></div>}
+  </div>;
 }

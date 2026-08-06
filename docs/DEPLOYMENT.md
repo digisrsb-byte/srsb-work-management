@@ -1,81 +1,53 @@
-# SRSB Work Management 1.1.0 deployment
+# SRSB Work Management 1.2.0 deployment
 
-This release upgrades the existing GitHub repository, existing Railway backend and existing Railway MySQL database. Do not create a second repository or Railway project.
+This release upgrades the existing GitHub repository, Railway backend and Railway MySQL database. Do not create a second repository, service or database.
 
-## 1. Back up the existing database
+## 1. Protect production data
 
-Create a Railway MySQL backup before the first 1.1.0 deployment.
+A valid database backup is strongly recommended before the first 1.2.0 deployment. When a Railway backup is unavailable, avoid destructive SQL and deploy only the additive migration included with this release.
 
-Do not run `database/schema.sql` against the existing Railway database. That file is only for a completely fresh installation. The backend startup migration in `apps/backend/src/migrations/ensureV110Schema.js` adds the 1.1.0 structures without deleting current records.
+Never run `database/schema.sql` against Railway. The backend startup migration in `apps/backend/src/migrations/ensureV120Schema.js` adds the version 1.2.0 structures without deleting existing users or business records.
 
-## 2. Private-repository update access
+## 2. Apply and validate source
 
-The desktop updater checks the public Railway endpoint:
+Use the version 1.2.0 upgrade package in the current project folder. The apply script creates a local source backup, installs dependencies, validates source and builds the Windows installer.
 
-```text
-https://srsb-work-management-production.up.railway.app/api/app-updates/latest
-```
+## 3. Push to the existing repository
 
-When the existing GitHub repository is private, add this backend-only Railway variable:
-
-```text
-GITHUB_RELEASE_TOKEN=<fine-grained read-only token for the existing repository>
-```
-
-Never add this token to frontend or desktop files. Optional defaults:
-
-```text
-GITHUB_RELEASE_OWNER=digisrsb-byte
-GITHUB_RELEASE_REPO=srsb-work-management
-GITHUB_RELEASE_CACHE_SECONDS=300
-PUBLIC_API_URL=https://srsb-work-management-production.up.railway.app
-```
-
-## 3. Push 1.1.0 to the existing repository
+Review staged files before committing. Do not stage `.env`, `release`, `node_modules`, backups or temporary patch files.
 
 ```cmd
-git add apps database scripts .github package.json package-lock.json Build-SRSB-v1.1.0.bat Publish-Future-Update.bat README-V1.1.0.md Verify-Deployed-v1.1.0.*
-git commit -m "Release SRSB Work Management 1.1.0"
+git add .github apps database scripts docs package.json package-lock.json README.md README-V1.2.0.md START_HERE.md Build-SRSB-v1.2.0.bat Publish-Future-Update.bat Verify-Deployed-v1.2.0.bat Verify-Deployed-v1.2.0.cjs VALIDATION-REPORT-V1.2.0.txt
+git commit -m "Release SRSB Work Management 1.2.0"
 git push origin main
 ```
 
-Wait for the same Railway backend service to show Online. Its startup applies the additive migration.
+## 4. Verify Railway
 
-## 4. Verify the deployed backend
-
-Run:
+Wait for the existing backend deployment to become Active, then run:
 
 ```text
-Verify-Deployed-v1.1.0.bat
+Verify-Deployed-v1.2.0.bat
 ```
 
-Test Head Admin, Admin/HR and Employee workflows before publishing the release.
+The script performs read-only checks for login, dashboards, clients, candidate references, placements, invoices, holidays, tasks and attendance calendar.
 
-## 5. Build the Windows application
+## 5. Pilot the Windows application
 
-Run:
+Install:
 
 ```text
-Build-SRSB-v1.1.0.bat
+release\SRSB-Work-Management-Setup-1.2.0.exe
 ```
 
-Expected installer:
+Test with:
+- Super Admin: invoice settings, preview, PDF download and print.
+- Normal Admin: no Invoice menu or API access.
+- Employee: attendance calendar, tasks and extension request.
+- Recruitment user: candidate sourcing and placement history.
 
-```text
-release\SRSB-Work-Management-Setup-1.1.0.exe
-```
+## 6. Automatic updates
 
-Install it on one pilot computer and complete the acceptance test.
+The desktop updater checks the existing Railway update endpoint. A private GitHub repository requires a backend-only, read-only release token in Railway. Never put that token in frontend or desktop source.
 
-## 6. Publish the first automatic-update release
-
-After the pilot passes:
-
-```cmd
-git tag v1.1.0
-git push origin v1.1.0
-```
-
-The existing GitHub Actions workflow publishes the installer as a Release asset. Version 1.1.0 is the one-time installer employees receive manually. Future desktop releases can be installed from **Settings & Updates → Check for Updates**.
-
-Backend-only changes continue to deploy through Railway and do not require a new desktop installation.
+Backend-only fixes deploy through Railway and do not require a new installer. Frontend or Electron changes require a new desktop release.

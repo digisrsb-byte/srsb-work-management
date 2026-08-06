@@ -33,6 +33,7 @@ function mapPayload(body) {
     addressLine: clean(body.addressLine),
     city: clean(body.city),
     state: clean(body.state),
+    stateCode: clean(body.stateCode),
     postalCode: clean(body.postalCode),
     industry: clean(body.industry),
     website: clean(body.website),
@@ -59,7 +60,7 @@ export const listClients = asyncHandler(async (req, res) => {
 
   if (keyword) {
     conditions.push(`LOWER(CONCAT_WS(' ', c.company_name, c.gst_number, c.address_line,
-      c.city, c.state, c.postal_code, c.industry, c.website, c.company_email,
+      c.city, c.state, c.state_code, c.postal_code, c.industry, c.website, c.company_email,
       c.company_phone, c.contact_person_name, c.contact_person_email,
       c.contact_person_phone, c.status)) LIKE ?`);
     values.push(`%${keyword}%`);
@@ -68,7 +69,7 @@ export const listClients = asyncHandler(async (req, res) => {
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
   const [rows] = await pool.query(
     `SELECT c.id, c.company_name, c.gst_number, c.address_line, c.city, c.state,
-       c.postal_code, c.industry, c.website, c.company_email, c.company_phone,
+       c.state_code, c.postal_code, c.industry, c.website, c.company_email, c.company_phone,
        c.contact_person_name, c.contact_person_email, c.contact_person_phone,
        c.contact_name, c.contact_email, c.contact_phone, c.onboarded_by, c.status,
        c.created_at, c.updated_at, e.full_name AS onboarded_by_name,
@@ -140,13 +141,13 @@ export const createClient = asyncHandler(async (req, res) => {
 
   const [result] = await pool.query(
     `INSERT INTO clients (
-       company_name, gst_number, address_line, city, state, postal_code, industry,
+       company_name, gst_number, address_line, city, state, state_code, postal_code, industry,
        website, company_email, company_phone, contact_person_name,
        contact_person_email, contact_person_phone, contact_name, contact_email,
        contact_phone, onboarded_by, status
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [client.companyName, client.gstNumber, client.addressLine, client.city, client.state,
-      client.postalCode, client.industry, client.website, client.companyEmail,
+      client.stateCode, client.postalCode, client.industry, client.website, client.companyEmail,
       client.companyPhone, client.contactPersonName, client.contactPersonEmail,
       client.contactPersonPhone, client.contactPersonName,
       client.contactPersonEmail || client.companyEmail,
@@ -173,13 +174,13 @@ export const updateClient = asyncHandler(async (req, res) => {
   const [result] = await pool.query(
     `UPDATE clients SET
        company_name = ?, gst_number = ?, address_line = ?, city = ?, state = ?,
-       postal_code = ?, industry = ?, website = ?, company_email = ?,
+       state_code = ?, postal_code = ?, industry = ?, website = ?, company_email = ?,
        company_phone = ?, contact_person_name = ?, contact_person_email = ?,
        contact_person_phone = ?, contact_name = ?, contact_email = ?,
        contact_phone = ?, status = ?
      WHERE id = ?`,
     [client.companyName, client.gstNumber, client.addressLine, client.city, client.state,
-      client.postalCode, client.industry, client.website, client.companyEmail,
+      client.stateCode, client.postalCode, client.industry, client.website, client.companyEmail,
       client.companyPhone, client.contactPersonName, client.contactPersonEmail,
       client.contactPersonPhone, client.contactPersonName,
       client.contactPersonEmail || client.companyEmail,

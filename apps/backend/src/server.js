@@ -3,6 +3,7 @@ import { env } from './config/env.js';
 import { pool, testDatabaseConnection } from './config/database.js';
 import { startAttendanceScheduler } from './utils/attendanceScheduler.js';
 import { ensureV110Schema } from './migrations/ensureV110Schema.js';
+import { ensureV120Schema } from './migrations/ensureV120Schema.js';
 
 async function columnExists(columnName) {
   const [rows] = await pool.query(
@@ -55,6 +56,7 @@ async function start() {
     await testDatabaseConnection();
     await ensureSecuritySchema();
     await ensureV110Schema();
+    await ensureV120Schema();
     app.listen(env.port, '0.0.0.0', () => {
       console.log(`SRSB Work Management API running at http://localhost:${env.port}`);
       startAttendanceScheduler();

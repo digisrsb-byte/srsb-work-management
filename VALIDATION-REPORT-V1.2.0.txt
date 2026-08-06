@@ -1,0 +1,21 @@
+SRSB Work Management 1.2.0 — Validation Report
+
+Source checks included:
+- Version consistency across root, backend, frontend and desktop packages.
+- Backend JavaScript syntax validation.
+- Version 1.2.0 migration presence and startup integration.
+- Candidate sourcing and placement APIs.
+- Recruitment invoice Super Admin permission in backend and frontend.
+- Invoice preview/PDF/print source markers.
+- No due-date or supporting-file field in the new invoice form.
+- Configurable rather than hard-coded invoice bank details.
+- Holiday calendar, greeting fields and edit/delete APIs.
+- Task edit, due-date reason, extension review, attachments and history.
+- Attendance calendar and administrator adjustment APIs.
+- Frontend JS/JSX parser validation and local import resolution.
+
+Final Windows installer build must be performed on Windows using:
+Build-SRSB-v1.2.0.bat
+
+After Railway deployment, run:
+Verify-Deployed-v1.2.0.bat

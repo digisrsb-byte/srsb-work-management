@@ -10,6 +10,7 @@ const emptyForm = {
   addressLine: '',
   city: '',
   state: '',
+  stateCode: '',
   postalCode: '',
   industry: '',
   website: '',
@@ -81,6 +82,7 @@ export default function Clients() {
       addressLine: client.address_line || '',
       city: client.city || '',
       state: client.state || '',
+      stateCode: client.state_code || '',
       postalCode: client.postal_code || '',
       industry: client.industry || '',
       website: client.website || '',
@@ -161,6 +163,7 @@ export default function Clients() {
             <label className="form-group form-span-2"><span>Registered Address</span><textarea className="input" rows="3" name="addressLine" value={form.addressLine} onChange={updateField} /></label>
             <label className="form-group"><span>City</span><input className="input" name="city" value={form.city} onChange={updateField} /></label>
             <label className="form-group"><span>State</span><input className="input" name="state" value={form.state} onChange={updateField} /></label>
+            <label className="form-group"><span>State Code</span><input className="input" name="stateCode" value={form.stateCode} onChange={updateField} placeholder="Example: 29" /></label>
             <label className="form-group"><span>PIN Code</span><input className="input" name="postalCode" value={form.postalCode} onChange={updateField} /></label>
             <label className="form-group"><span>Website</span><input className="input" name="website" value={form.website} onChange={updateField} placeholder="https://" /></label>
             <label className="form-group"><span>Company Email</span><input className="input" type="email" name="companyEmail" value={form.companyEmail} onChange={updateField} /></label>

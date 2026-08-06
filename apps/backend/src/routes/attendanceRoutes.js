@@ -7,7 +7,9 @@ import {
   myAttendance,
   punchIn,
   punchOut,
-  listEmployeeAttendance
+  listEmployeeAttendance,
+  attendanceCalendar,
+  adminAdjustAttendance
 } from '../controllers/attendanceController.js';
 
 const router = Router();
@@ -17,6 +19,13 @@ router.use(authenticate);
 router.post('/punch-in', punchIn);
 router.post('/punch-out', punchOut);
 router.get('/my-records', myAttendance);
+
+router.get('/calendar', attendanceCalendar);
+router.put(
+  '/admin-adjust',
+  allowRoles('SUPER_ADMIN','ADMIN','HR','MANAGER'),
+  adminAdjustAttendance
+);
 
 router.get(
   '/',

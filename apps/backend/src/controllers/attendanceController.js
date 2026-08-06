@@ -343,3 +343,142 @@ export const listEmployeeAttendance = asyncHandler(
     });
   }
 );
+
+function monthRange(monthValue) {
+  const month = String(monthValue || '').trim();
+  if (!/^\d{4}-\d{2}$/.test(month)) {
+    throw new AppError('Month must be in YYYY-MM format.', 400);
+  }
+  const [year, monthNumber] = month.split('-').map(Number);
+  if (monthNumber < 1 || monthNumber > 12) throw new AppError('Invalid calendar month.', 400);
+  const start = `${year}-${String(monthNumber).padStart(2, '0')}-01`;
+  const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+  const end = `${year}-${String(monthNumber).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+  return { month, year, monthNumber, start, end, lastDay };
+}
+
+const dayNames = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
+
+export const attendanceCalendar = asyncHandler(async (req, res) => {
+  const range = monthRange(req.query.month || new Date().toISOString().slice(0, 7));
+  const isAdmin = ['SUPER_ADMIN','ADMIN','HR','MANAGER'].includes(req.user.role);
+  let employeeId = req.user.id;
+  if (req.query.employeeId) {
+    if (!isAdmin && Number(req.query.employeeId) !== Number(req.user.id)) {
+      throw new AppError('You can view only your attendance calendar.', 403);
+    }
+    employeeId = Number(req.query.employeeId);
+  }
+  if (!Number.isInteger(Number(employeeId)) || Number(employeeId) <= 0) {
+    throw new AppError('Select a valid employee.', 400);
+  }
+
+  const [[employee]] = await pool.query(
+    `SELECT e.id, e.employee_id, e.full_name, e.designation, e.department_id,
+       e.weekly_off_day, d.name AS department
+     FROM employees e LEFT JOIN departments d ON d.id = e.department_id
+     WHERE e.id = ? AND COALESCE(e.account_type, 'EMPLOYEE') = 'EMPLOYEE'`,
+    [employeeId]
+  );
+  if (!employee) throw new AppError('Employee not found.', 404);
+
+  const [records] = await pool.query(
+    `SELECT id, attendance_date, punch_in, punch_out,
+       CASE
+         WHEN punch_in IS NOT NULL AND punch_out IS NULL AND attendance_date = CURDATE()
+         THEN TIMESTAMPDIFF(MINUTE, punch_in, NOW())
+         ELSE COALESCE(total_work_minutes, 0)
+       END AS total_work_minutes,
+       status, remarks
+     FROM attendance
+     WHERE employee_id = ? AND attendance_date BETWEEN ? AND ?`,
+    [employeeId, range.start, range.end]
+  );
+
+  const [holidays] = await pool.query(
+    `SELECT id, holiday_name, holiday_date, holiday_type, description
+     FROM holidays
+     WHERE holiday_date BETWEEN ? AND ?
+       AND (department_id IS NULL OR department_id = ?)`,
+    [range.start, range.end, employee.department_id]
+  );
+  const [[todayRow]] = await pool.query('SELECT DATE_FORMAT(CURDATE(), "%Y-%m-%d") AS today');
+  const today = todayRow.today;
+  const recordMap = new Map(records.map((record) => [String(record.attendance_date).slice(0, 10), record]));
+  const holidayMap = new Map(holidays.map((holiday) => [String(holiday.holiday_date).slice(0, 10), holiday]));
+
+  const calendar = [];
+  const summary = { PRESENT: 0, ABSENT: 0, HOLIDAY: 0, LEAVE: 0, HALF_DAY: 0, WEEK_OFF: 0, MISSING_PUNCH: 0 };
+  for (let day = 1; day <= range.lastDay; day += 1) {
+    const date = `${range.year}-${String(range.monthNumber).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const weekday = dayNames[new Date(`${date}T00:00:00Z`).getUTCDay()];
+    const record = recordMap.get(date);
+    const holiday = holidayMap.get(date);
+    let status = record?.status || null;
+    let remarks = record?.remarks || null;
+    if (!status && holiday) {
+      status = 'HOLIDAY';
+      remarks = holiday.holiday_name;
+    } else if (!status && weekday === employee.weekly_off_day) {
+      status = 'WEEK_OFF';
+      remarks = 'Weekly off';
+    } else if (!status && date < today) {
+      status = 'ABSENT';
+      remarks = 'Attendance not recorded';
+    } else if (!status && date === today) {
+      status = 'NOT_MARKED';
+      remarks = 'Attendance not marked yet';
+    } else if (!status) {
+      status = 'FUTURE';
+    }
+    if (summary[status] !== undefined) summary[status] += 1;
+    calendar.push({
+      date,
+      weekday,
+      status,
+      attendanceId: record?.id || null,
+      punchIn: record?.punch_in || null,
+      punchOut: record?.punch_out || null,
+      totalWorkMinutes: Number(record?.total_work_minutes || 0),
+      remarks,
+      holiday: holiday || null
+    });
+  }
+
+  res.json({ success: true, data: { employee, month: range.month, today, calendar, summary } });
+});
+
+export const adminAdjustAttendance = asyncHandler(async (req, res) => {
+  const employeeId = Number(req.body.employeeId);
+  if (!Number.isInteger(employeeId) || employeeId <= 0) throw new AppError('Select a valid employee.', 400);
+  const date = String(req.body.date || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new AppError('Select a valid attendance date.', 400);
+  const status = String(req.body.status || '').toUpperCase();
+  if (!allowedStatuses.includes(status)) throw new AppError('Select a valid attendance status.', 400);
+  const punchIn = req.body.punchIn ? new Date(req.body.punchIn) : null;
+  const punchOut = req.body.punchOut ? new Date(req.body.punchOut) : null;
+  if (punchIn && Number.isNaN(punchIn.getTime())) throw new AppError('Punch-in time is invalid.', 400);
+  if (punchOut && Number.isNaN(punchOut.getTime())) throw new AppError('Punch-out time is invalid.', 400);
+  if (punchIn && punchOut && punchOut <= punchIn) throw new AppError('Punch-out must be after punch-in.', 400);
+  const punchInSql = punchIn ? punchIn.toISOString().slice(0, 19).replace('T', ' ') : null;
+  const punchOutSql = punchOut ? punchOut.toISOString().slice(0, 19).replace('T', ' ') : null;
+  const minutes = punchIn && punchOut ? Math.max(Math.round((punchOut - punchIn) / 60000), 0) : 0;
+  const remarks = String(req.body.remarks || '').trim() || `Adjusted by ${req.user.fullName || 'Admin'}`;
+
+  const [[employee]] = await pool.query(
+    `SELECT id FROM employees WHERE id = ? AND COALESCE(account_type, 'EMPLOYEE') = 'EMPLOYEE'`,
+    [employeeId]
+  );
+  if (!employee) throw new AppError('Employee not found.', 404);
+
+  await pool.query(
+    `INSERT INTO attendance (
+       employee_id, attendance_date, punch_in, punch_out, total_work_minutes, status, remarks
+     ) VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE punch_in = VALUES(punch_in), punch_out = VALUES(punch_out),
+       total_work_minutes = VALUES(total_work_minutes), status = VALUES(status),
+       remarks = VALUES(remarks), updated_at = CURRENT_TIMESTAMP`,
+    [employeeId, date, punchInSql, punchOutSql, minutes, status, remarks]
+  );
+  res.json({ success: true, message: 'Attendance updated successfully.' });
+});

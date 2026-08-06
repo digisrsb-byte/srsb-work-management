@@ -1,6 +1,6 @@
 {
   "name": "srsb-hrms-api",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,8 @@
     "start": "node src/server.js",
     "seed": "node src/seed.js",
     "seed:demo": "node src/seedDemo.js",
-    "migrate:v110": "node src/migrateV110.js"
+    "migrate:v110": "node src/migrateV110.js",
+    "migrate:v120": "node src/migrateV120.js"
   },
   "dependencies": {
     "bcryptjs": "2.4.3",
