@@ -1,4 +1,4 @@
-import { pool } from '../config/database.js';
+﻿import { pool } from '../config/database.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
 
@@ -341,6 +341,47 @@ export const updateCandidate = asyncHandler(async (req, res) => {
   res.json({ success: true, message: 'Candidate updated successfully.' });
 });
 
+export const deleteCandidate = asyncHandler(async (req, res) => {
+  const candidateId = positiveId(req.params.id, 'candidate ID');
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const [[candidate]] = await connection.query(
+      'SELECT id, full_name FROM candidates WHERE id = ? FOR UPDATE',
+      [candidateId]
+    );
+
+    if (!candidate) throw new AppError('Candidate not found.', 404);
+
+    await connection.query(
+      `INSERT INTO audit_logs (
+         employee_id, action, entity_type, entity_id,
+         old_values, new_values, ip_address
+       ) VALUES (?, 'CANDIDATE_DELETED', 'CANDIDATE', ?, ?, NULL, ?)`,
+      [req.user.id, String(candidateId), JSON.stringify(candidate), req.ip || null]
+    );
+
+    const [result] = await connection.query(
+      'DELETE FROM candidates WHERE id = ?',
+      [candidateId]
+    );
+
+    if (!result.affectedRows) throw new AppError('Candidate not found.', 404);
+
+    await connection.commit();
+    res.json({
+      success: true,
+      message: `${candidate.full_name} deleted successfully.`
+    });
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+});
 export const linkCandidateApplication = asyncHandler(async (req, res) => {
   const candidateId = positiveId(req.params.id, 'candidate ID');
   const [[candidate]] = await pool.query('SELECT id, full_name FROM candidates WHERE id = ?', [candidateId]);
@@ -584,3 +625,4 @@ export const deleteCandidateHistory = asyncHandler(async (req, res) => {
   if (!result.affectedRows) throw new AppError('Candidate history record not found.', 404);
   res.json({ success: true, message: 'Candidate placement history deleted.' });
 });
+

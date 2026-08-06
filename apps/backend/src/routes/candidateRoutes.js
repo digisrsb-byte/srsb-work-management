@@ -1,4 +1,4 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import { body } from 'express-validator';
 import {
   listCandidates,
@@ -6,6 +6,7 @@ import {
   listCandidatePlacements,
   createCandidate,
   updateCandidate,
+  deleteCandidate,
   linkCandidateApplication,
   updateCandidateStage,
   deleteCandidateApplication,
@@ -36,6 +37,7 @@ router.post(
   createCandidate
 );
 router.put('/:id', allowRoles(...candidateRoles), updateCandidate);
+router.delete('/:id', allowRoles('SUPER_ADMIN','ADMIN','HR'), deleteCandidate);
 router.post('/:id/applications', allowRoles(...candidateRoles), linkCandidateApplication);
 router.put('/applications/:applicationId/stage', allowRoles(...candidateRoles), updateCandidateStage);
 router.delete('/:id/applications/:applicationId', allowRoles('SUPER_ADMIN','ADMIN','HR','MANAGER'), deleteCandidateApplication);
@@ -45,3 +47,4 @@ router.put('/:id/history/:historyId', allowRoles(...candidateRoles), updateCandi
 router.delete('/:id/history/:historyId', allowRoles('SUPER_ADMIN','ADMIN','HR'), deleteCandidateHistory);
 
 export default router;
+
