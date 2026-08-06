@@ -337,6 +337,199 @@ export const listEmployeeAttendance = asyncHandler(
   }
 );
 
+
+function attendanceDateValue(value) {
+  const date = String(value || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new AppError('Select a valid attendance date.', 400);
+  }
+  return date;
+}
+
+export const attendanceDayOverview = asyncHandler(async (req, res) => {
+  const selectedDate = attendanceDateValue(
+    req.query.date || new Date().toISOString().slice(0, 10)
+  );
+
+  const [[context]] = await pool.query(
+    `SELECT
+       DATE_FORMAT(CURDATE(), '%Y-%m-%d') AS today,
+       UPPER(DAYNAME(?)) AS weekday`,
+    [selectedDate]
+  );
+
+  const [rows] = await pool.query(
+    `SELECT
+       e.id AS employee_id,
+       e.employee_id AS employee_code,
+       e.full_name AS employee_name,
+       e.designation,
+       e.weekly_off_day,
+       d.name AS department,
+       a.id AS attendance_id,
+       a.punch_in,
+       a.punch_out,
+       CASE
+         WHEN a.punch_in IS NOT NULL
+           AND a.punch_out IS NULL
+           AND ? = CURDATE()
+         THEN TIMESTAMPDIFF(MINUTE, a.punch_in, NOW())
+         ELSE COALESCE(a.total_work_minutes, 0)
+       END AS total_work_minutes,
+       a.status AS stored_status,
+       a.remarks,
+       lr.id AS leave_id,
+       lr.leave_type,
+       h.id AS holiday_id,
+       h.holiday_name
+     FROM employees e
+     LEFT JOIN departments d
+       ON d.id = e.department_id
+     LEFT JOIN attendance a
+       ON a.employee_id = e.id
+      AND a.attendance_date = ?
+     LEFT JOIN leave_requests lr
+       ON lr.id = (
+         SELECT lr2.id
+         FROM leave_requests lr2
+         WHERE lr2.employee_id = e.id
+           AND lr2.status = 'APPROVED'
+           AND ? BETWEEN lr2.start_date AND lr2.end_date
+         ORDER BY lr2.id DESC
+         LIMIT 1
+       )
+     LEFT JOIN holidays h
+       ON h.id = (
+         SELECT h2.id
+         FROM holidays h2
+         WHERE h2.holiday_date = ?
+           AND (h2.department_id IS NULL OR h2.department_id = e.department_id)
+         ORDER BY (h2.department_id IS NOT NULL) DESC, h2.id DESC
+         LIMIT 1
+       )
+     WHERE COALESCE(e.account_type, 'EMPLOYEE') = 'EMPLOYEE'
+       AND e.status = 'ACTIVE'
+     ORDER BY e.full_name ASC`,
+    [selectedDate, selectedDate, selectedDate, selectedDate]
+  );
+
+  const today = context.today;
+  const weekday = context.weekday;
+  const isFutureDate = selectedDate > today;
+  const isToday = selectedDate === today;
+
+  const summary = {
+    totalEmployees: rows.length,
+    present: 0,
+    absent: 0,
+    leave: 0,
+    holiday: 0,
+    workedOnHoliday: 0,
+    notMarked: 0,
+    future: 0,
+    halfDay: 0,
+    missingPunch: 0,
+    totalWorkMinutes: 0
+  };
+
+  const employees = rows.map((row) => {
+    const hasPunch = Boolean(row.punch_in);
+    const isWeeklyOff =
+      weekday === 'SATURDAY' ||
+      weekday === String(row.weekly_off_day || 'SUNDAY').toUpperCase();
+    const isHoliday = Boolean(row.holiday_id) || isWeeklyOff;
+    let displayStatus;
+
+    if (hasPunch) {
+      if (row.stored_status === 'HALF_DAY') {
+        displayStatus = 'HALF_DAY';
+      } else if (row.stored_status === 'MISSING_PUNCH') {
+        displayStatus = 'MISSING_PUNCH';
+      } else if (isHoliday) {
+        displayStatus = 'WORKED_ON_HOLIDAY';
+      } else {
+        displayStatus = 'PRESENT';
+      }
+    } else if (isFutureDate) {
+      displayStatus = 'FUTURE';
+    } else if (row.stored_status) {
+      displayStatus = row.stored_status === 'WEEK_OFF'
+        ? 'HOLIDAY'
+        : row.stored_status;
+    } else if (isHoliday) {
+      displayStatus = 'HOLIDAY';
+    } else if (row.leave_id) {
+      displayStatus = 'LEAVE';
+    } else if (isToday) {
+      displayStatus = 'NOT_MARKED';
+    } else {
+      displayStatus = 'ABSENT';
+    }
+
+    const minutes = hasPunch
+      ? Number(row.total_work_minutes || 0)
+      : 0;
+
+    if (displayStatus === 'PRESENT') summary.present += 1;
+    if (displayStatus === 'ABSENT') summary.absent += 1;
+    if (displayStatus === 'LEAVE') summary.leave += 1;
+    if (displayStatus === 'HOLIDAY') summary.holiday += 1;
+    if (displayStatus === 'WORKED_ON_HOLIDAY') {
+      summary.present += 1;
+      summary.workedOnHoliday += 1;
+    }
+    if (displayStatus === 'NOT_MARKED') summary.notMarked += 1;
+    if (displayStatus === 'FUTURE') summary.future += 1;
+    if (displayStatus === 'HALF_DAY') {
+      summary.present += 1;
+      summary.halfDay += 1;
+    }
+    if (displayStatus === 'MISSING_PUNCH') {
+      summary.present += 1;
+      summary.missingPunch += 1;
+    }
+
+    summary.totalWorkMinutes += minutes;
+
+    return {
+      employeeId: row.employee_id,
+      employeeCode: row.employee_code,
+      employeeName: row.employee_name,
+      department: row.department,
+      designation: row.designation,
+      attendanceId: row.attendance_id,
+      date: selectedDate,
+      punchIn: row.punch_in,
+      punchOut: row.punch_out,
+      totalWorkMinutes: minutes,
+      status: displayStatus,
+      storedStatus: row.stored_status,
+      remarks: row.remarks,
+      leaveType: row.leave_type,
+      isHoliday,
+      holidayName:
+        row.holiday_name ||
+        (isWeeklyOff
+          ? weekday === 'SATURDAY'
+            ? 'Saturday Holiday'
+            : 'Weekly Holiday'
+          : null)
+    };
+  });
+
+  res.json({
+    success: true,
+    data: {
+      selectedDate,
+      today,
+      weekday,
+      isFutureDate,
+      employees,
+      summary
+    }
+  });
+});
+
 function monthRange(monthValue) {
   const month = String(monthValue || '').trim();
   if (!/^\d{4}-\d{2}$/.test(month)) {

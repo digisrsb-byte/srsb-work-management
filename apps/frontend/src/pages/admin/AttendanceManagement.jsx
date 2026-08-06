@@ -1,53 +1,342 @@
-import { useCallback, useEffect, useState } from 'react';
-import { RefreshCw, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { CalendarDays, Clock3, Pencil, RefreshCw, Users, X } from 'lucide-react';
 import api from '../../services/api.js';
-import AttendanceCalendar from '../../components/AttendanceCalendar.jsx';
+import MonthlyCalendar, { shiftMonth } from '../../components/MonthlyCalendar.jsx';
 
-const statuses = ['PRESENT','ABSENT','HOLIDAY','LEAVE','HALF_DAY','WEEK_OFF','MISSING_PUNCH'];
-const label = (value) => String(value || '').replaceAll('_',' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
-const inputDateTime = (date, value) => value ? new Date(value).toISOString().slice(0, 16) : `${date}T09:30`;
-const formatTime = (value) => value ? new Date(value).toLocaleString('en-IN') : '—';
+const editableStatuses = [
+  'PRESENT',
+  'ABSENT',
+  'HALF_DAY',
+  'LEAVE',
+  'HOLIDAY',
+  'WEEK_OFF',
+  'MISSING_PUNCH'
+];
+
+const statusLabels = {
+  PRESENT: 'Present',
+  ABSENT: 'Absent',
+  HALF_DAY: 'Half Day',
+  LEAVE: 'Approved Leave',
+  HOLIDAY: 'Holiday',
+  WEEK_OFF: 'Weekly Holiday',
+  MISSING_PUNCH: 'Missing Punch',
+  WORKED_ON_HOLIDAY: 'Worked on Holiday',
+  NOT_MARKED: 'Not Punched / Not Marked',
+  FUTURE: 'Future'
+};
+
+function localDateValue(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function label(value) {
+  return statusLabels[value] || String(value || '').replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function time(value) {
+  return value
+    ? new Date(value).toLocaleTimeString('en-IN', {
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    : '—';
+}
+
+function hours(minutes) {
+  const value = Number(minutes || 0);
+  return `${Math.floor(value / 60)}h ${value % 60}m`;
+}
+
+function inputDateTime(date, value, fallback) {
+  if (value) {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      const local = new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60000);
+      return local.toISOString().slice(0, 16);
+    }
+  }
+  return fallback ? `${date}T${fallback}` : '';
+}
 
 export default function AttendanceManagement() {
-  const [employees, setEmployees] = useState([]);
-  const [employeeId, setEmployeeId] = useState('');
-  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const today = useMemo(() => localDateValue(), []);
+  const [selectedDate, setSelectedDate] = useState(today);
+  const [month, setMonth] = useState(today.slice(0, 7));
   const [data, setData] = useState(null);
-  const [selected, setSelected] = useState(null);
-  const [edit, setEdit] = useState(null);
+  const [editing, setEditing] = useState(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    api.get('/employees').then((response) => { const list = response.data.data || []; setEmployees(list); if (list.length) setEmployeeId(String(list[0].id)); }).catch((requestError) => setError(requestError.response?.data?.message || 'Employees could not be loaded.'));
-  }, []);
-
   const load = useCallback(async () => {
-    if (!employeeId) return;
-    try { setLoading(true); const response = await api.get('/attendance/calendar', { params: { employeeId, month } }); setData(response.data.data); }
-    catch (requestError) { setError(requestError.response?.data?.message || 'Attendance calendar could not be loaded.'); }
-    finally { setLoading(false); }
-  }, [employeeId, month]);
-  useEffect(() => { load(); }, [load]);
+    try {
+      setLoading(true);
+      setError('');
+      const response = await api.get('/attendance/day-overview', {
+        params: { date: selectedDate }
+      });
+      setData(response.data.data || null);
+    } catch (requestError) {
+      setError(
+        requestError.response?.data?.message ||
+          'Attendance for the selected date could not be loaded.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedDate]);
 
-  function openDay(date, item) {
-    const record = item || { date, status: 'NOT_MARKED', punchIn: null, punchOut: null, remarks: '' };
-    setSelected(record);
-    setEdit({ employeeId, date, status: record.status === 'FUTURE' || record.status === 'NOT_MARKED' ? 'PRESENT' : record.status, punchIn: inputDateTime(date, record.punchIn), punchOut: record.punchOut ? inputDateTime(date, record.punchOut) : '', remarks: record.remarks || '' });
+  useEffect(() => {
+    load();
+  }, [load]);
+
+
+  function moveMonth(amount) {
+    const nextMonth = shiftMonth(month, amount);
+    setMonth(nextMonth);
+    setSelectedDate(`${nextMonth}-01`);
+    setMessage('');
+    setError('');
+  }
+
+  function chooseDate(date) {
+    setSelectedDate(date);
+    setMonth(date.slice(0, 7));
+    setMessage('');
+    setError('');
+  }
+
+  function openEdit(employee) {
+    if (data?.isFutureDate) return;
+    const status = ['FUTURE', 'NOT_MARKED', 'WORKED_ON_HOLIDAY'].includes(employee.status)
+      ? 'PRESENT'
+      : employee.status;
+    setEditing({
+      employeeId: employee.employeeId,
+      employeeName: employee.employeeName,
+      date: selectedDate,
+      status: editableStatuses.includes(status) ? status : 'PRESENT',
+      punchIn: inputDateTime(selectedDate, employee.punchIn, '09:30'),
+      punchOut: inputDateTime(selectedDate, employee.punchOut, ''),
+      remarks: employee.remarks || ''
+    });
   }
 
   async function save(event) {
     event.preventDefault();
-    try { const response = await api.put('/attendance/admin-adjust', edit); setMessage(response.data.message); setSelected(null); await load(); }
-    catch (requestError) { setError(requestError.response?.data?.message || 'Attendance could not be updated.'); }
+    try {
+      setError('');
+      const response = await api.put('/attendance/admin-adjust', editing);
+      setMessage(response.data.message || 'Attendance updated successfully.');
+      setEditing(null);
+      await load();
+    } catch (requestError) {
+      setError(
+        requestError.response?.data?.message ||
+          'Attendance could not be updated.'
+      );
+    }
   }
 
   const summary = data?.summary || {};
-  return <div className="module-page"><div className="page-heading-row"><div><p className="eyebrow">Attendance Management</p><h1 className="page-title">Employee Attendance Calendar</h1><p className="page-subtitle">Present is green, holiday/Saturday blue, leave yellow, half day orange and no-punch days grey. No-punch days are not marked absent automatically.</p></div><button className="btn btn-secondary" onClick={load}><RefreshCw size={17}/> Refresh</button></div>
-    {message && <div className="message message-success">{message}</div>}{error && <div className="message message-error">{error}</div>}
-    <div className="card attendance-calendar-filter"><label className="form-group"><span>Employee</span><select className="input" value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}><option value="">Select employee</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.full_name} ({employee.employee_id || employee.role})</option>)}</select></label><div className="attendance-summary-inline"><span>Present <b>{summary.PRESENT || 0}</b></span><span>No Punch <b>{summary.NOT_MARKED || 0}</b></span><span>Leave <b>{summary.LEAVE || 0}</b></span><span>Holiday <b>{summary.HOLIDAY || 0}</b></span><span>Half Day <b>{summary.HALF_DAY || 0}</b></span>{summary.ABSENT > 0 && <span>Manually Absent <b>{summary.ABSENT}</b></span>}</div></div>
-    {loading ? <div className="card">Loading attendance calendar...</div> : data && <AttendanceCalendar data={data} month={month} setMonth={setMonth} selectedDate={selected?.date} onSelectDate={openDay}/>} 
-    {selected && <div className="modal-overlay"><form className="modal-card" onSubmit={save}><div className="section-heading"><div><h2>Attendance — {selected.date}</h2><p className="page-subtitle">Current punch: {formatTime(selected.punchIn)} to {formatTime(selected.punchOut)}{selected.workedOnHoliday ? ` · Worked on Holiday (${selected.holidayLabel || 'Weekly Holiday'})` : ''}</p></div><button className="icon-btn" type="button" onClick={() => setSelected(null)}><X size={20}/></button></div><label className="form-group"><span>Status</span><select className="input" value={edit.status} onChange={(event) => setEdit((current) => ({ ...current, status: event.target.value }))}>{statuses.map((item) => <option key={item} value={item}>{label(item)}</option>)}</select></label><label className="form-group"><span>Punch In</span><input className="input" type="datetime-local" value={edit.punchIn} onChange={(event) => setEdit((current) => ({ ...current, punchIn: event.target.value }))}/></label><label className="form-group"><span>Punch Out</span><input className="input" type="datetime-local" value={edit.punchOut} onChange={(event) => setEdit((current) => ({ ...current, punchOut: event.target.value }))}/></label><label className="form-group"><span>Remarks</span><textarea className="input" rows="3" value={edit.remarks} onChange={(event) => setEdit((current) => ({ ...current, remarks: event.target.value }))}/></label><button className="btn btn-primary">Save Attendance</button></form></div>}
-  </div>;
+  const employees = data?.employees || [];
+
+  return (
+    <div className="module-page">
+      <div className="page-heading-row">
+        <div>
+          <p className="eyebrow">Attendance Management</p>
+          <h1 className="page-title">Daily Attendance Calendar</h1>
+          <p className="page-subtitle">
+            Select today, yesterday, tomorrow or any date to see every employee,
+            their attendance status and total working hours.
+          </p>
+        </div>
+        <button className="btn btn-secondary" type="button" onClick={load}>
+          <RefreshCw size={17} /> Refresh
+        </button>
+      </div>
+
+      {message && <div className="message message-success">{message}</div>}
+      {error && <div className="message message-error">{error}</div>}
+
+      <div className="attendance-admin-layout">
+        <div className="card attendance-admin-calendar">
+          <MonthlyCalendar
+            month={month}
+            items={[]}
+            selectedDate={selectedDate}
+            onPrevious={() => moveMonth(-1)}
+            onNext={() => moveMonth(1)}
+            onToday={() => chooseDate(today)}
+            onSelectDate={(date) => chooseDate(date)}
+            renderCell={({ date }) => {
+              const weekday = new Date(`${date}T00:00:00`).getDay();
+              return (
+                <div className="attendance-admin-date-cell">
+                  {date === today && <span className="today-chip">Today</span>}
+                  {weekday === 6 && <span className="holiday-chip">Saturday</span>}
+                  {date === selectedDate && <strong>Selected</strong>}
+                </div>
+              );
+            }}
+          />
+        </div>
+
+        <div className="attendance-selected-date-panel">
+          <div className="card attendance-date-heading">
+            <div>
+              <p className="eyebrow">Selected Date</p>
+              <h2>{selectedDate}</h2>
+              <p>
+                {data?.weekday ? label(data.weekday) : ''}
+                {data?.isFutureDate ? ' · Future date' : ''}
+              </p>
+            </div>
+            <CalendarDays size={30} />
+          </div>
+
+          <div className="attendance-day-summary-grid">
+            <div className="card"><span>Total Employees</span><strong>{summary.totalEmployees || 0}</strong><Users size={19} /></div>
+            <div className="card summary-present"><span>Present</span><strong>{summary.present || 0}</strong></div>
+            <div className="card summary-absent"><span>Absent</span><strong>{summary.absent || 0}</strong></div>
+            <div className="card summary-leave"><span>On Leave</span><strong>{summary.leave || 0}</strong></div>
+            <div className="card summary-holiday"><span>Holiday</span><strong>{summary.holiday || 0}</strong></div>
+            <div className="card"><span>Not Marked</span><strong>{summary.notMarked || 0}</strong></div>
+            <div className="card"><span>Future</span><strong>{summary.future || 0}</strong></div>
+            <div className="card"><span>Total Work Time</span><strong>{hours(summary.totalWorkMinutes)}</strong><Clock3 size={19} /></div>
+          </div>
+        </div>
+      </div>
+
+      <div className="card table-wrap attendance-day-table-card">
+        <div className="section-heading">
+          <div>
+            <h2>Employees — {selectedDate}</h2>
+            <p className="page-subtitle">
+              Past dates show Present or Absent. Today shows Present or Not Marked.
+              Future dates never show Absent.
+            </p>
+          </div>
+        </div>
+
+        <table className="data-table attendance-day-table">
+          <thead>
+            <tr>
+              <th>Employee</th>
+              <th>Department</th>
+              <th>Status</th>
+              <th>Punch In</th>
+              <th>Punch Out</th>
+              <th>Working Hours</th>
+              <th>Remarks</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan="8">Loading attendance…</td></tr>
+            ) : employees.length === 0 ? (
+              <tr><td colSpan="8">No active employees were found.</td></tr>
+            ) : (
+              employees.map((employee) => (
+                <tr key={employee.employeeId}>
+                  <td>
+                    <strong>{employee.employeeName}</strong>
+                    <small>{employee.employeeCode || '—'} · {employee.designation || '—'}</small>
+                  </td>
+                  <td>{employee.department || '—'}</td>
+                  <td>
+                    <span className={`attendance-status-pill status-${String(employee.status).toLowerCase()}`}>
+                      {label(employee.status)}
+                    </span>
+                    {employee.holidayName && <small>{employee.holidayName}</small>}
+                  </td>
+                  <td>{time(employee.punchIn)}</td>
+                  <td>{time(employee.punchOut)}</td>
+                  <td>{hours(employee.totalWorkMinutes)}</td>
+                  <td>{employee.remarks || employee.leaveType || '—'}</td>
+                  <td>
+                    <button
+                      className="btn btn-secondary btn-small"
+                      type="button"
+                      disabled={Boolean(data?.isFutureDate)}
+                      onClick={() => openEdit(employee)}
+                    >
+                      <Pencil size={15} /> Edit
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {editing && (
+        <div className="modal-overlay">
+          <form className="modal-card" onSubmit={save}>
+            <div className="section-heading">
+              <div>
+                <h2>Edit Attendance</h2>
+                <p className="page-subtitle">{editing.employeeName} · {editing.date}</p>
+              </div>
+              <button className="icon-btn" type="button" onClick={() => setEditing(null)}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <label className="form-group">
+              <span>Status</span>
+              <select
+                className="input"
+                value={editing.status}
+                onChange={(event) => setEditing((current) => ({ ...current, status: event.target.value }))}
+              >
+                {editableStatuses.map((status) => (
+                  <option key={status} value={status}>{label(status)}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="form-group">
+              <span>Punch In</span>
+              <input
+                className="input"
+                type="datetime-local"
+                value={editing.punchIn}
+                onChange={(event) => setEditing((current) => ({ ...current, punchIn: event.target.value }))}
+              />
+            </label>
+
+            <label className="form-group">
+              <span>Punch Out</span>
+              <input
+                className="input"
+                type="datetime-local"
+                value={editing.punchOut}
+                onChange={(event) => setEditing((current) => ({ ...current, punchOut: event.target.value }))}
+              />
+            </label>
+
+            <label className="form-group">
+              <span>Remarks</span>
+              <textarea
+                className="input"
+                rows="3"
+                value={editing.remarks}
+                onChange={(event) => setEditing((current) => ({ ...current, remarks: event.target.value }))}
+              />
+            </label>
+
+            <button className="btn btn-primary">Save Attendance</button>
+          </form>
+        </div>
+      )}
+    </div>
+  );
 }

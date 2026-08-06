@@ -9,6 +9,7 @@ import {
   punchOut,
   listEmployeeAttendance,
   attendanceCalendar,
+  attendanceDayOverview,
   adminAdjustAttendance
 } from '../controllers/attendanceController.js';
 
@@ -21,6 +22,13 @@ router.post('/punch-out', punchOut);
 router.get('/my-records', myAttendance);
 
 router.get('/calendar', attendanceCalendar);
+
+router.get(
+  '/day-overview',
+  allowRoles('SUPER_ADMIN', 'ADMIN'),
+  attendanceDayOverview
+);
+
 router.put(
   '/admin-adjust',
   allowRoles('SUPER_ADMIN','ADMIN','HR','MANAGER'),

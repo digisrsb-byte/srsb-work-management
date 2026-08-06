@@ -169,14 +169,38 @@ export async function ensureV120Schema() {
        9,
        9,
        18,
-       NULL,
-       NULL,
-       NULL,
-       NULL,
-       NULL,
+       'SRSB WORKFORCE SOLUTIONS PVT LTD',
+       '13340200111222',
+       'FDRL0001334',
+       'Federal Bank',
+       'Rajajinagar',
        'Authorised Signatory',
        'SRSB'
      )`
+  );
+
+  // The recruitment invoice header, GST, SAC, bank and signatory labels are
+  // company-wide fixed values. Keep existing Railway data aligned with the
+  // approved SRSB invoice format on every deployment.
+  await pool.query(
+    `UPDATE invoice_settings SET
+       legal_name = 'SRSB WORKFORCE SOLUTIONS PVT LTD',
+       gst_number = '29ABQCS9374K1Z6',
+       registered_address = 'No. 228/B, 55th Cross, 3rd Block, Rajajinagar, Bangalore - 560010',
+       email = 'srsbhrsolutions25@gmail.com',
+       phone = '8317406575 / 8660666087',
+       default_sac_code = '998616',
+       default_cgst_rate = 9,
+       default_sgst_rate = 9,
+       default_igst_rate = 18,
+       bank_account_name = 'SRSB WORKFORCE SOLUTIONS PVT LTD',
+       bank_account_number = '13340200111222',
+       bank_ifsc = 'FDRL0001334',
+       bank_name = 'Federal Bank',
+       bank_branch = 'Rajajinagar',
+       authorised_signatory = 'Authorised Signatory',
+       invoice_prefix = 'SRSB'
+     WHERE id = 1`
   );
 
   // Holiday calendar greetings.

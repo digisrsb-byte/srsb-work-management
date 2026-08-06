@@ -13,7 +13,9 @@ import {
   Plus,
   Search,
   RefreshCw,
+  Pencil,
   Trash2,
+  X,
   UserRound
 } from 'lucide-react';
 import api from '../../services/api.js';
@@ -71,7 +73,7 @@ function formatDate(value) {
 
 export default function Openings() {
   const { user } = useAuth();
-  const canDeleteRequirement = ['SUPER_ADMIN', 'ADMIN'].includes(user?.role);
+  const canManageRequirement = ['SUPER_ADMIN', 'ADMIN'].includes(user?.role);
   const addFormRef = useRef(null);
   const [openings, setOpenings] = useState([]);
   const [clients, setClients] = useState([]);
@@ -85,6 +87,7 @@ export default function Openings() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [editingOpeningId, setEditingOpeningId] = useState(null);
 
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -191,7 +194,52 @@ export default function Openings() {
     }));
   };
 
-  const createOpening = async (event) => {
+  const resetRequirementForm = () => {
+    setForm(initialForm);
+    setEditingOpeningId(null);
+  };
+
+  const startEditingRequirement = (opening) => {
+    setEditingOpeningId(opening.id);
+    setForm({
+      clientId: String(opening.client_id || ''),
+      title: opening.title || '',
+      location: opening.location || '',
+      openingsCount: Number(opening.openings_count || 1),
+      experienceMin:
+        opening.experience_min === null ||
+        opening.experience_min === undefined
+          ? ''
+          : opening.experience_min,
+      experienceMax:
+        opening.experience_max === null ||
+        opening.experience_max === undefined
+          ? ''
+          : opening.experience_max,
+      assignedRecruiterId:
+        opening.assigned_recruiter_id === null ||
+        opening.assigned_recruiter_id === undefined
+          ? ''
+          : String(opening.assigned_recruiter_id),
+      priority: opening.priority || 'MEDIUM',
+      status: opening.status || 'OPEN',
+      openedDate: opening.opened_date
+        ? String(opening.opened_date).slice(0, 10)
+        : '',
+      targetCloseDate: opening.target_close_date
+        ? String(opening.target_close_date).slice(0, 10)
+        : ''
+    });
+
+    window.requestAnimationFrame(() => {
+      addFormRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start'
+      });
+    });
+  };
+
+  const saveOpening = async (event) => {
     event.preventDefault();
 
     if (!form.clientId) {
@@ -199,46 +247,53 @@ export default function Openings() {
       return;
     }
 
+    const payload = {
+      clientId: Number(form.clientId),
+      title: form.title,
+      location: form.location,
+      openingsCount: Number(form.openingsCount),
+      experienceMin:
+        form.experienceMin === ''
+          ? null
+          : Number(form.experienceMin),
+      experienceMax:
+        form.experienceMax === ''
+          ? null
+          : Number(form.experienceMax),
+      assignedRecruiterId:
+        form.assignedRecruiterId === ''
+          ? null
+          : Number(form.assignedRecruiterId),
+      priority: form.priority,
+      status: form.status,
+      openedDate: form.openedDate || null,
+      targetCloseDate: form.targetCloseDate || null
+    };
+
     try {
       setCreating(true);
       setError('');
       setMessage('');
 
-      const response = await api.post('/openings', {
-        clientId: Number(form.clientId),
-        title: form.title,
-        location: form.location,
-        openingsCount: Number(form.openingsCount),
-        experienceMin:
-          form.experienceMin === ''
-            ? null
-            : Number(form.experienceMin),
-        experienceMax:
-          form.experienceMax === ''
-            ? null
-            : Number(form.experienceMax),
-        assignedRecruiterId:
-          form.assignedRecruiterId === ''
-            ? null
-            : Number(form.assignedRecruiterId),
-        priority: form.priority,
-        status: form.status,
-        openedDate: form.openedDate || null,
-        targetCloseDate:
-          form.targetCloseDate || null
-      });
+      const response = editingOpeningId
+        ? await api.put(`/openings/${editingOpeningId}`, payload)
+        : await api.post('/openings', payload);
 
       showMessage(
         response.data.message ||
-          'Requirement created successfully.'
+          (editingOpeningId
+            ? 'Requirement updated successfully.'
+            : 'Requirement created successfully.')
       );
 
-      setForm(initialForm);
+      resetRequirementForm();
       await loadData();
     } catch (err) {
       showError(
         err.response?.data?.message ||
-          'Unable to create requirement.'
+          (editingOpeningId
+            ? 'Unable to update requirement.'
+            : 'Unable to create requirement.')
       );
     } finally {
       setCreating(false);
@@ -255,6 +310,11 @@ export default function Openings() {
       setMessage('');
       const response = await api.delete(`/openings/${opening.id}`);
       showMessage(response.data.message || 'Requirement deleted successfully.');
+
+      if (editingOpeningId === opening.id) {
+        resetRequirementForm();
+      }
+
       await loadData({ silent: true });
     } catch (err) {
       showError(
@@ -826,14 +886,208 @@ export default function Openings() {
         </div>
       )}
 
-      <form ref={addFormRef} className="card" onSubmit={createOpening}>
+      <div className="section-heading" style={{ marginTop: 6 }}>
+        <div>
+          <h2>Saved Requirements</h2>
+          <p className="page-subtitle">
+            Select a company above to filter its requirements. Use Edit or Delete on each saved requirement.
+          </p>
+        </div>
+      </div>
+
+      <div className="opening-list">
+        {filteredOpenings.map((opening) => {
+          const totalPositions = Number(
+            opening.openings_count || 0
+          );
+
+          const filledPositions = Number(
+            opening.filled_positions || 0
+          );
+
+          const progress =
+            totalPositions > 0
+              ? Math.min(
+                  Math.round(
+                    (filledPositions /
+                      totalPositions) *
+                      100
+                  ),
+                  100
+                )
+              : 0;
+
+          return (
+            <article
+              className="opening-card"
+              key={opening.id}
+            >
+              <div className="opening-card-header">
+                <div>
+                  <h3 className="opening-card-title">
+                    {opening.title}
+                  </h3>
+
+                  <div className="opening-company">
+                    {opening.company_name}
+                  </div>
+                </div>
+
+                <div className="opening-card-badges">
+                  <span
+                    className={`badge badge-${String(
+                      opening.priority || 'MEDIUM'
+                    ).toLowerCase()}`}
+                  >
+                    {formatText(opening.priority)}
+                  </span>
+
+                  <span
+                    className={`badge badge-${String(
+                      opening.status || 'OPEN'
+                    ).toLowerCase()}`}
+                  >
+                    {formatText(opening.status)}
+                  </span>
+
+                  {canManageRequirement && (
+                    <>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-compact"
+                        onClick={() =>
+                          startEditingRequirement(opening)
+                        }
+                      >
+                        <Pencil size={15} />
+                        Edit
+                      </button>
+
+                      <button
+                        type="button"
+                        className="btn btn-danger btn-compact"
+                        onClick={() => deleteOpening(opening)}
+                      >
+                        <Trash2 size={15} />
+                        Delete
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="opening-details-grid">
+                <div className="opening-detail">
+                  <span className="opening-detail-label">
+                    <BriefcaseBusiness size={14} />
+                    Positions
+                  </span>
+
+                  <span className="opening-detail-value">
+                    {opening.openings_count || 0}
+                  </span>
+                </div>
+
+                <div className="opening-detail">
+                  <span className="opening-detail-label">
+                    <MapPin size={14} />
+                    Location
+                  </span>
+
+                  <span className="opening-detail-value">
+                    {opening.location || 'Not added'}
+                  </span>
+                </div>
+
+                <div className="opening-detail">
+                  <span className="opening-detail-label">
+                    <UserRound size={14} />
+                    Handled By
+                  </span>
+
+                  <span className="opening-detail-value">
+                    {opening.assigned_recruiter_name ||
+                      'Not Assigned'}
+                  </span>
+                </div>
+
+                <div className="opening-detail">
+                  <span className="opening-detail-label">
+                    <CalendarDays size={14} />
+                    Target Date
+                  </span>
+
+                  <span className="opening-detail-value">
+                    {formatDate(
+                      opening.target_close_date
+                    )}
+                  </span>
+                </div>
+
+                <div className="opening-detail">
+                  <span className="opening-detail-label">
+                    Filled Positions
+                  </span>
+
+                  <span className="opening-detail-value">
+                    {filledPositions}
+                  </span>
+                </div>
+
+                <div className="opening-detail">
+                  <span className="opening-detail-label">
+                    Remaining Positions
+                  </span>
+
+                  <span className="opening-detail-value">
+                    {opening.remaining_positions || 0}
+                  </span>
+                </div>
+              </div>
+
+              <div className="opening-progress">
+                <div className="opening-progress-top">
+                  <span>
+                    Placement progress
+                  </span>
+
+                  <strong>{progress}%</strong>
+                </div>
+
+                <div className="opening-progress-track">
+                  <div
+                    className="opening-progress-fill"
+                    style={{
+                      width: `${progress}%`
+                    }}
+                  />
+                </div>
+              </div>
+            </article>
+          );
+        })}
+
+        {!filteredOpenings.length && (
+          <div className="card">
+            No saved requirements found for the selected company. Use Add Requirement to create one.
+          </div>
+        )}
+      </div>
+
+
+      <form ref={addFormRef} className="card" onSubmit={saveOpening}>
         <div className="section-heading">
           <div>
-            <h2>Add New Requirement</h2>
+            <h2>
+              {editingOpeningId
+                ? 'Edit Requirement'
+                : 'Add New Requirement'}
+            </h2>
 
             <p className="page-subtitle">
-              Add a client position and assign it to an
-              employee.
+              {editingOpeningId
+                ? 'Update the selected requirement and save the changes.'
+                : 'Add a client position and assign it to an employee.'}
             </p>
           </div>
 
@@ -1021,183 +1275,42 @@ export default function Openings() {
           </label>
         </div>
 
-        <button
-          type="submit"
-          className="button"
-          disabled={creating}
-          style={{ marginTop: 18 }}
+        <div
+          style={{
+            display: 'flex',
+            gap: 10,
+            flexWrap: 'wrap',
+            marginTop: 18
+          }}
         >
-          {creating
-            ? 'Creating...'
-            : 'Create Requirement'}
-        </button>
+          <button
+            type="submit"
+            className="button"
+            disabled={creating}
+          >
+            {creating
+              ? editingOpeningId
+                ? 'Updating...'
+                : 'Creating...'
+              : editingOpeningId
+                ? 'Update Requirement'
+                : 'Create Requirement'}
+          </button>
+
+          {editingOpeningId && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={resetRequirementForm}
+              disabled={creating}
+            >
+              <X size={16} />
+              Cancel Edit
+            </button>
+          )}
+        </div>
       </form>
 
-      <div className="opening-list">
-        {filteredOpenings.map((opening) => {
-          const totalPositions = Number(
-            opening.openings_count || 0
-          );
-
-          const filledPositions = Number(
-            opening.filled_positions || 0
-          );
-
-          const progress =
-            totalPositions > 0
-              ? Math.min(
-                  Math.round(
-                    (filledPositions /
-                      totalPositions) *
-                      100
-                  ),
-                  100
-                )
-              : 0;
-
-          return (
-            <article
-              className="opening-card"
-              key={opening.id}
-            >
-              <div className="opening-card-header">
-                <div>
-                  <h3 className="opening-card-title">
-                    {opening.title}
-                  </h3>
-
-                  <div className="opening-company">
-                    {opening.company_name}
-                  </div>
-                </div>
-
-                <div className="opening-card-badges">
-                  <span
-                    className={`badge badge-${String(
-                      opening.priority || 'MEDIUM'
-                    ).toLowerCase()}`}
-                  >
-                    {formatText(opening.priority)}
-                  </span>
-
-                  <span
-                    className={`badge badge-${String(
-                      opening.status || 'OPEN'
-                    ).toLowerCase()}`}
-                  >
-                    {formatText(opening.status)}
-                  </span>
-
-                  {canDeleteRequirement && (
-                    <button
-                      type="button"
-                      className="btn btn-danger btn-compact"
-                      onClick={() => deleteOpening(opening)}
-                    >
-                      <Trash2 size={15} />
-                      Delete
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="opening-details-grid">
-                <div className="opening-detail">
-                  <span className="opening-detail-label">
-                    <BriefcaseBusiness size={14} />
-                    Positions
-                  </span>
-
-                  <span className="opening-detail-value">
-                    {opening.openings_count || 0}
-                  </span>
-                </div>
-
-                <div className="opening-detail">
-                  <span className="opening-detail-label">
-                    <MapPin size={14} />
-                    Location
-                  </span>
-
-                  <span className="opening-detail-value">
-                    {opening.location || 'Not added'}
-                  </span>
-                </div>
-
-                <div className="opening-detail">
-                  <span className="opening-detail-label">
-                    <UserRound size={14} />
-                    Handled By
-                  </span>
-
-                  <span className="opening-detail-value">
-                    {opening.assigned_recruiter_name ||
-                      'Not Assigned'}
-                  </span>
-                </div>
-
-                <div className="opening-detail">
-                  <span className="opening-detail-label">
-                    <CalendarDays size={14} />
-                    Target Date
-                  </span>
-
-                  <span className="opening-detail-value">
-                    {formatDate(
-                      opening.target_close_date
-                    )}
-                  </span>
-                </div>
-
-                <div className="opening-detail">
-                  <span className="opening-detail-label">
-                    Filled Positions
-                  </span>
-
-                  <span className="opening-detail-value">
-                    {filledPositions}
-                  </span>
-                </div>
-
-                <div className="opening-detail">
-                  <span className="opening-detail-label">
-                    Remaining Positions
-                  </span>
-
-                  <span className="opening-detail-value">
-                    {opening.remaining_positions || 0}
-                  </span>
-                </div>
-              </div>
-
-              <div className="opening-progress">
-                <div className="opening-progress-top">
-                  <span>
-                    Placement progress
-                  </span>
-
-                  <strong>{progress}%</strong>
-                </div>
-
-                <div className="opening-progress-track">
-                  <div
-                    className="opening-progress-fill"
-                    style={{
-                      width: `${progress}%`
-                    }}
-                  />
-                </div>
-              </div>
-            </article>
-          );
-        })}
-
-        {!filteredOpenings.length && (
-          <div className="card">
-            No requirements found.
-          </div>
-        )}
-      </div>
     </>
   );
 }

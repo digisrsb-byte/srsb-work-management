@@ -440,8 +440,8 @@ INSERT INTO invoice_settings (
   1, 'SRSB WORKFORCE SOLUTIONS PVT LTD', '29ABQCS9374K1Z6',
   'No. 228/B, 55th Cross, 3rd Block, Rajajinagar, Bangalore - 560010',
   'srsbhrsolutions25@gmail.com', '8317406575 / 8660666087', '998616', 9, 9, 18,
-  NULL, NULL, NULL,
-  NULL, NULL, 'Authorised Signatory', 'SRSB'
+  'SRSB WORKFORCE SOLUTIONS PVT LTD', '13340200111222', 'FDRL0001334',
+  'Federal Bank', 'Rajajinagar', 'Authorised Signatory', 'SRSB'
 );
 
 ALTER TABLE holidays

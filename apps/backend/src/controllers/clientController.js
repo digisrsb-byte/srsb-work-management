@@ -82,7 +82,7 @@ export const listClients = asyncHandler(async (req, res) => {
      FROM clients c
      LEFT JOIN employees e ON e.id = c.onboarded_by
      ${where}
-     ORDER BY c.created_at DESC
+     ORDER BY c.company_name ASC
      LIMIT 1000`,
     values
   );
