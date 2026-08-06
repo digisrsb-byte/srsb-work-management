@@ -29,6 +29,8 @@ async function sendPunchInReminders() {
      WHERE e.status = 'ACTIVE'
        AND e.role <> 'SUPER_ADMIN'
        AND a.punch_in IS NULL
+       AND UPPER(DAYNAME(CURDATE())) <> 'SATURDAY'
+       AND UPPER(DAYNAME(CURDATE())) <> COALESCE(e.weekly_off_day, 'SUNDAY')
        AND NOT EXISTS (
          SELECT 1
          FROM holidays h

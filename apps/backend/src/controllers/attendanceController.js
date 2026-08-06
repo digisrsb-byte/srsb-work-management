@@ -155,13 +155,6 @@ export const punchOut = asyncHandler(async (req, res) => {
            MINUTE,
            punch_in,
            NOW()
-         ) < 180
-         THEN 'ABSENT'
-
-         WHEN TIMESTAMPDIFF(
-           MINUTE,
-           punch_in,
-           NOW()
          ) < 480
          THEN 'HALF_DAY'
 
@@ -408,30 +401,67 @@ export const attendanceCalendar = asyncHandler(async (req, res) => {
   const holidayMap = new Map(holidays.map((holiday) => [String(holiday.holiday_date).slice(0, 10), holiday]));
 
   const calendar = [];
-  const summary = { PRESENT: 0, ABSENT: 0, HOLIDAY: 0, LEAVE: 0, HALF_DAY: 0, WEEK_OFF: 0, MISSING_PUNCH: 0 };
+  const summary = {
+    PRESENT: 0,
+    ABSENT: 0,
+    HOLIDAY: 0,
+    LEAVE: 0,
+    HALF_DAY: 0,
+    WEEK_OFF: 0,
+    MISSING_PUNCH: 0,
+    NOT_MARKED: 0
+  };
+
   for (let day = 1; day <= range.lastDay; day += 1) {
     const date = `${range.year}-${String(range.monthNumber).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const weekday = dayNames[new Date(`${date}T00:00:00Z`).getUTCDay()];
     const record = recordMap.get(date);
     const holiday = holidayMap.get(date);
+
+    // Saturday is always a company weekly holiday. The employee's configured
+    // weekly off is also respected, so existing Sunday/off-day settings remain valid.
+    const isWeeklyOff =
+      weekday === 'SATURDAY' ||
+      weekday === employee.weekly_off_day;
+    const isHoliday = Boolean(holiday) || isWeeklyOff;
+    const workedOnHoliday =
+      Boolean(record?.punch_in) &&
+      isHoliday;
+
     let status = record?.status || null;
     let remarks = record?.remarks || null;
+
     if (!status && holiday) {
       status = 'HOLIDAY';
       remarks = holiday.holiday_name;
-    } else if (!status && weekday === employee.weekly_off_day) {
-      status = 'WEEK_OFF';
-      remarks = 'Weekly off';
-    } else if (!status && date < today) {
-      status = 'ABSENT';
-      remarks = 'Attendance not recorded';
-    } else if (!status && date === today) {
+    } else if (!status && isWeeklyOff) {
+      status = 'HOLIDAY';
+      remarks =
+        weekday === 'SATURDAY'
+          ? 'Saturday Holiday'
+          : 'Weekly Holiday';
+    } else if (!status && date <= today) {
       status = 'NOT_MARKED';
-      remarks = 'Attendance not marked yet';
+      remarks = 'No punch recorded';
     } else if (!status) {
       status = 'FUTURE';
     }
-    if (summary[status] !== undefined) summary[status] += 1;
+
+    if (workedOnHoliday) {
+      remarks =
+        record?.remarks ||
+        `Worked on ${
+          holiday?.holiday_name ||
+          (weekday === 'SATURDAY'
+            ? 'Saturday holiday'
+            : 'weekly holiday')
+        }`;
+    }
+
+    if (summary[status] !== undefined) {
+      summary[status] += 1;
+    }
+
     calendar.push({
       date,
       weekday,
@@ -441,7 +471,16 @@ export const attendanceCalendar = asyncHandler(async (req, res) => {
       punchOut: record?.punch_out || null,
       totalWorkMinutes: Number(record?.total_work_minutes || 0),
       remarks,
-      holiday: holiday || null
+      holiday: holiday || null,
+      isWeeklyOff,
+      workedOnHoliday,
+      holidayLabel:
+        holiday?.holiday_name ||
+        (isWeeklyOff
+          ? weekday === 'SATURDAY'
+            ? 'Saturday Holiday'
+            : 'Weekly Holiday'
+          : null)
     });
   }
 

@@ -33,16 +33,65 @@ requireText('apps/backend/src/controllers/candidateController.js', ['getCandidat
 requireText('apps/backend/src/controllers/invoiceController.js', ['PERCENTAGE_CTC', 'invoice_items', 'getInvoiceSettings']);
 requireText('apps/backend/src/routes/invoiceRoutes.js', ["router.use(authenticate, allowRoles('SUPER_ADMIN'))"]);
 requireText('apps/backend/src/controllers/taskController.js', ['requestTaskExtension', 'reviewTaskExtension', 'getTaskHistory', 'normaliseTaskField', 'Enter a reason when changing the task due date.']);
-requireText('apps/backend/src/controllers/attendanceController.js', ['attendanceCalendar', 'adminAdjustAttendance']);
+requireText('apps/backend/src/controllers/attendanceController.js', [
+  'attendanceCalendar',
+  'adminAdjustAttendance',
+  "weekday === 'SATURDAY'",
+  "status = 'NOT_MARKED'",
+  'workedOnHoliday',
+  "THEN 'HALF_DAY'"
+]);
 requireText('apps/frontend/src/pages/admin/Invoices.jsx', ['Invoice Preview', 'Preview Invoice', 'Download PDF', 'Placed Candidates']);
 requireText('apps/frontend/src/utils/invoicePdf.js', ['TAX INVOICE', 'RECRUITMENT & PLACEMENT SERVICES', 'downloadInvoicePdf', 'invoice-print-frame']);
 requireText('apps/frontend/src/pages/admin/Holidays.jsx', ['MonthlyCalendar', 'Dashboard Greeting']);
 requireText('apps/frontend/src/pages/Tasks.jsx', ['Request Due-Date Extension', 'Change History']);
-requireText('apps/frontend/src/components/AttendanceCalendar.jsx', ["PRESENT: 'Present'", "ABSENT: 'Absent'", "HOLIDAY: 'Holiday'"]);
+requireText('apps/frontend/src/components/AttendanceCalendar.jsx', [
+  "PRESENT: 'Present'",
+  "HOLIDAY: 'Holiday'",
+  "NOT_MARKED: 'No Punch / Not Marked'",
+  'Worked on Holiday'
+]);
 requireText('apps/frontend/src/pages/admin/Candidates.jsx', ['Source for Company', 'Placement & Employment History']);
 requireText('apps/backend/src/controllers/clientController.js', ['c.state_code', 'state_code = ?']);
-requireText('apps/frontend/src/pages/Tasks.jsx', ["nextStatus = task.status === 'BLOCKED'", 'Reason for Due-Date Change']);
+requireText('apps/frontend/src/pages/Tasks.jsx', [
+  "nextStatus = task.status === 'BLOCKED'",
+  'Reason for Due-Date Change',
+  'Edit assigned work',
+  'Delete assigned work',
+  "const taskAdminRoles = ['SUPER_ADMIN','ADMIN']"
+]);
 requireText('apps/frontend/src/layouts/AppLayout.jsx', ["user?.role === 'SUPER_ADMIN'"]);
+requireText('apps/backend/src/routes/taskRoutes.js', [
+  "router.put('/:id', allowRoles('SUPER_ADMIN','ADMIN'), updateTask)",
+  "router.delete('/:id', allowRoles('SUPER_ADMIN','ADMIN'), deleteTask)"
+]);
+requireText('apps/backend/src/utils/attendanceScheduler.js', [
+  "UPPER(DAYNAME(CURDATE())) <> 'SATURDAY'",
+  "COALESCE(e.weekly_off_day, 'SUNDAY')"
+]);
+requireText('apps/backend/src/controllers/taskController.js', [
+  "'TASK_DELETED'",
+  "Assigned work \"${task.title}\" deleted successfully."
+]);
+
+const attendanceSource = read('apps/backend/src/controllers/attendanceController.js');
+if (attendanceSource.includes("status = 'ABSENT';\n      remarks = 'Attendance not recorded'")) {
+  fail('Attendance calendar must not automatically mark no-punch days absent.');
+} else {
+  pass('No-punch days remain Not Marked instead of automatic Absent.');
+}
+if (/THEN\s+'ABSENT'/m.test(attendanceSource)) {
+  fail('Punch-out duration must not automatically create Absent status.');
+} else {
+  pass('Punch-out duration never creates automatic Absent status.');
+}
+
+const taskRouteSource = read('apps/backend/src/routes/taskRoutes.js');
+if (taskRouteSource.includes("allowRoles('SUPER_ADMIN','ADMIN','HR','MANAGER')")) {
+  fail('Task create/edit/delete management must be restricted to Admin and Super Admin.');
+} else {
+  pass('Task management is restricted to Admin and Super Admin.');
+}
 
 const migrationSource = read('apps/backend/src/migrations/ensureV120Schema.js');
 if (!migrationSource.includes("       NULL,\n       NULL,\n       NULL,\n       NULL,\n       NULL,\n       'Authorised Signatory'")) {

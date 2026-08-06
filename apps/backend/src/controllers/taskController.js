@@ -2,7 +2,8 @@ import { pool } from '../config/database.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
 
-const adminRoles = ['SUPER_ADMIN','ADMIN','HR','MANAGER'];
+const taskViewerRoles = ['SUPER_ADMIN','ADMIN','HR','MANAGER'];
+const taskAdminRoles = ['SUPER_ADMIN','ADMIN'];
 const allowedStatuses = ['PENDING','IN_PROGRESS','BLOCKED','COMPLETED','CANCELLED'];
 const allowedPriorities = ['LOW','MEDIUM','HIGH','URGENT'];
 
@@ -85,7 +86,7 @@ async function saveAttachment(connection, taskId, file, userId) {
 }
 
 export const listTasks = asyncHandler(async (req, res) => {
-  const isAdmin = adminRoles.includes(req.user.role);
+  const isAdmin = taskViewerRoles.includes(req.user.role);
   const conditions = [];
   const values = [];
   if (!isAdmin) {
@@ -203,7 +204,7 @@ function validateStatusProgress(statusValue, progressValue) {
 
 export const updateTask = asyncHandler(async (req, res) => {
   const taskId = positiveId(req.params.id);
-  if (!adminRoles.includes(req.user.role)) throw new AppError('Only authorised managers can edit assigned task details.', 403);
+  if (!taskAdminRoles.includes(req.user.role)) throw new AppError('Only Admin or Super Admin can edit assigned work.', 403);
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
@@ -303,7 +304,7 @@ export const updateTaskStatus = asyncHandler(async (req, res) => {
       [taskId]
     );
     if (!task) throw new AppError('Task not found.', 404);
-    const isAdmin = adminRoles.includes(req.user.role);
+    const isAdmin = taskViewerRoles.includes(req.user.role);
     if (!isAdmin && Number(task.assigned_to) !== Number(req.user.id)) {
       throw new AppError('You can update only tasks assigned to you.', 403);
     }
@@ -351,7 +352,7 @@ export const requestTaskExtension = asyncHandler(async (req, res) => {
   if (!reason) throw new AppError('Reason for extension is required.', 400);
   const [[task]] = await pool.query('SELECT id, title, assigned_to, due_date FROM tasks WHERE id = ?', [taskId]);
   if (!task) throw new AppError('Task not found.', 404);
-  const isAdmin = adminRoles.includes(req.user.role);
+  const isAdmin = taskViewerRoles.includes(req.user.role);
   if (!isAdmin && Number(task.assigned_to) !== Number(req.user.id)) {
     throw new AppError('You can request an extension only for your assigned task.', 403);
   }
@@ -436,7 +437,7 @@ export const getTaskHistory = asyncHandler(async (req, res) => {
   const taskId = positiveId(req.params.id);
   const [[task]] = await pool.query('SELECT assigned_to FROM tasks WHERE id = ?', [taskId]);
   if (!task) throw new AppError('Task not found.', 404);
-  if (!adminRoles.includes(req.user.role) && Number(task.assigned_to) !== Number(req.user.id)) {
+  if (!taskViewerRoles.includes(req.user.role) && Number(task.assigned_to) !== Number(req.user.id)) {
     throw new AppError('You cannot view this task history.', 403);
   }
   const [history, extensions, attachments] = await Promise.all([
@@ -469,7 +470,7 @@ export const uploadTaskAttachment = asyncHandler(async (req, res) => {
   const taskId = positiveId(req.params.id);
   const [[task]] = await pool.query('SELECT assigned_to FROM tasks WHERE id = ?', [taskId]);
   if (!task) throw new AppError('Task not found.', 404);
-  if (!adminRoles.includes(req.user.role) && Number(task.assigned_to) !== Number(req.user.id)) {
+  if (!taskViewerRoles.includes(req.user.role) && Number(task.assigned_to) !== Number(req.user.id)) {
     throw new AppError('You cannot upload an attachment to this task.', 403);
   }
   const attachment = parseAttachment(req.body.attachment);
@@ -491,7 +492,7 @@ export const downloadTaskAttachment = asyncHandler(async (req, res) => {
     [attachmentId]
   );
   if (!attachment) throw new AppError('Attachment not found.', 404);
-  if (!adminRoles.includes(req.user.role) && Number(attachment.assigned_to) !== Number(req.user.id)) {
+  if (!taskViewerRoles.includes(req.user.role) && Number(attachment.assigned_to) !== Number(req.user.id)) {
     throw new AppError('You cannot download this attachment.', 403);
   }
   res.setHeader('Content-Type', attachment.mime_type || 'application/octet-stream');
@@ -503,7 +504,7 @@ export const deleteTaskAttachment = asyncHandler(async (req, res) => {
   const attachmentId = positiveId(req.params.attachmentId, 'attachment');
   const [[attachment]] = await pool.query('SELECT task_id, file_name, uploaded_by FROM task_attachments WHERE id = ?', [attachmentId]);
   if (!attachment) throw new AppError('Attachment not found.', 404);
-  if (!adminRoles.includes(req.user.role) && Number(attachment.uploaded_by) !== Number(req.user.id)) {
+  if (!taskViewerRoles.includes(req.user.role) && Number(attachment.uploaded_by) !== Number(req.user.id)) {
     throw new AppError('You cannot delete this attachment.', 403);
   }
   await pool.query('DELETE FROM task_attachments WHERE id = ?', [attachmentId]);
@@ -513,8 +514,76 @@ export const deleteTaskAttachment = asyncHandler(async (req, res) => {
 
 export const deleteTask = asyncHandler(async (req, res) => {
   const taskId = positiveId(req.params.id);
-  if (!adminRoles.includes(req.user.role)) throw new AppError('You cannot delete tasks.', 403);
-  const [result] = await pool.query('DELETE FROM tasks WHERE id = ?', [taskId]);
-  if (!result.affectedRows) throw new AppError('Task not found.', 404);
-  res.json({ success: true, message: 'Task deleted successfully.' });
+
+  if (!taskAdminRoles.includes(req.user.role)) {
+    throw new AppError(
+      'Only Admin or Super Admin can delete assigned work.',
+      403
+    );
+  }
+
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const [[task]] = await connection.query(
+      `SELECT
+         id,
+         title,
+         description,
+         assigned_to,
+         assigned_by,
+         priority,
+         status,
+         progress,
+         start_date,
+         due_date,
+         remarks
+       FROM tasks
+       WHERE id = ?
+       FOR UPDATE`,
+      [taskId]
+    );
+
+    if (!task) {
+      throw new AppError('Task not found.', 404);
+    }
+
+    await connection.query(
+      `INSERT INTO audit_logs (
+         employee_id,
+         action,
+         entity_type,
+         entity_id,
+         old_values,
+         new_values,
+         ip_address
+       )
+       VALUES (?, 'TASK_DELETED', 'TASK', ?, ?, NULL, ?)`,
+      [
+        req.user.id,
+        String(taskId),
+        JSON.stringify(task),
+        req.ip || null
+      ]
+    );
+
+    await connection.query(
+      'DELETE FROM tasks WHERE id = ?',
+      [taskId]
+    );
+
+    await connection.commit();
+
+    res.json({
+      success: true,
+      message: `Assigned work "${task.title}" deleted successfully.`
+    });
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 });

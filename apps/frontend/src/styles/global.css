@@ -553,7 +553,10 @@ textarea { resize: vertical; }
 .attendance-holiday { background: #dbeafe; color: #1e40af; }
 .attendance-leave { background: #fef3c7; color: #92400e; }
 .attendance-half_day { background: #ffedd5; color: #9a3412; }
-.attendance-week_off, .attendance-future, .attendance-not_marked { background: #e2e8f0; color: #475569; }
+.attendance-week_off { background: #dbeafe; color: #1e40af; }
+.attendance-future, .attendance-not_marked { background: #e2e8f0; color: #475569; }
+.worked-holiday-badge { width: fit-content; padding: 2px 6px; border-radius: 999px; background: #dbeafe; color: #1e40af; font-weight: 700; }
+.task-admin-actions { flex-wrap: wrap; }
 .attendance-missing_punch { background: #fce7f3; color: #9d174d; }
 .attendance-calendar-filter { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
 .attendance-calendar-filter .form-group { min-width: 300px; margin: 0; }
