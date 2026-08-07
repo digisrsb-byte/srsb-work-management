@@ -1,5 +1,7 @@
 import MonthlyCalendar, { shiftMonth } from './MonthlyCalendar.jsx';
 
+function indiaMonthValue() { return new Date(Date.now() + 330 * 60 * 1000).toISOString().slice(0, 7); }
+
 const labels = {
   PRESENT: 'Present',
   ABSENT: 'Absent',
@@ -15,18 +17,18 @@ const labels = {
 const statusClass = (status) =>
   `attendance-${String(status || 'future').toLowerCase()}`;
 
-const time = (value) =>
-  value
-    ? new Date(value).toLocaleTimeString('en-IN', {
-        hour: '2-digit',
-        minute: '2-digit'
-      })
-    : '—';
+function wallClockTime(value) {
+  if (!value) return '—';
+  const match = String(value).trim().match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+  if (!match) return String(value);
+  const hour = Number(match[4]);
+  const displayHour = hour % 12 || 12;
+  return `${String(displayHour).padStart(2, '0')}:${match[5]} ${hour >= 12 ? 'PM' : 'AM'}`;
+}
 
-const hours = (minutes) =>
-  `${Math.floor(Number(minutes || 0) / 60)}h ${
-    Number(minutes || 0) % 60
-  }m`;
+const time = wallClockTime;
+
+const hours = (minutes) => { const value = Math.max(Number(minutes || 0), 0); return `${Math.floor(value / 60)}h ${value % 60}m`; };
 
 export default function AttendanceCalendar({
   data,
@@ -43,7 +45,7 @@ export default function AttendanceCalendar({
       onPrevious={() => setMonth(shiftMonth(month, -1))}
       onNext={() => setMonth(shiftMonth(month, 1))}
       onToday={() =>
-        setMonth(new Date().toISOString().slice(0, 7))
+        setMonth(indiaMonthValue())
       }
       onSelectDate={(date, item) =>
         onSelectDate?.(date, item)

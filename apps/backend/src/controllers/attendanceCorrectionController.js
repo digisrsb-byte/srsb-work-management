@@ -22,10 +22,27 @@ function toSqlDateTime(date, time) {
   return `${date} ${time.length === 5 ? `${time}:00` : time}`;
 }
 
+function indiaDateNow() {
+  return new Date(Date.now() + 330 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function wallClockMinutes(start, end) {
+  if (!start || !end) return 0;
+  const parse = (value) => {
+    const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (!match) return NaN;
+    return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]), Number(match[6] || 0));
+  };
+  const startMs = parse(start);
+  const endMs = parse(end);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return NaN;
+  return Math.round((endMs - startMs) / 60000);
+}
+
 function deriveAttendanceStatus(punchIn, punchOut, forcedStatus = null) {
   if (forcedStatus) return forcedStatus;
   if (!punchIn || !punchOut) return 'MISSING_PUNCH';
-  const minutes = Math.max(Math.round((new Date(punchOut) - new Date(punchIn)) / 60000), 0);
+  const minutes = Math.max(wallClockMinutes(punchIn, punchOut), 0);
   if (minutes >= 450) return 'PRESENT';
   if (minutes >= 240) return 'HALF_DAY';
   return 'ABSENT';
@@ -67,7 +84,7 @@ export const createCorrectionRequest = asyncHandler(async (req, res) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(correctionDate)) {
     throw new AppError('Select a valid attendance date.', 400);
   }
-  if (correctionDate > new Date().toISOString().slice(0, 10)) {
+  if (correctionDate > indiaDateNow()) {
     throw new AppError('Attendance correction cannot be requested for a future date.', 400);
   }
   if (!issueTypes.includes(issueType)) throw new AppError('Select a valid attendance issue.', 400);
@@ -75,7 +92,7 @@ export const createCorrectionRequest = asyncHandler(async (req, res) => {
 
   const requestedPunchIn = toSqlDateTime(correctionDate, req.body.requestedPunchIn);
   const requestedPunchOut = toSqlDateTime(correctionDate, req.body.requestedPunchOut);
-  if (requestedPunchIn && requestedPunchOut && new Date(requestedPunchOut) <= new Date(requestedPunchIn)) {
+  if (requestedPunchIn && requestedPunchOut && wallClockMinutes(requestedPunchIn, requestedPunchOut) <= 0) {
     throw new AppError('Punch-out time must be later than punch-in time.', 400);
   }
 
@@ -178,7 +195,11 @@ export const reviewCorrectionRequest = asyncHandler(async (req, res) => {
   try {
     await connection.beginTransaction();
     const [[request]] = await connection.query(
-      `SELECT r.*, e.full_name, e.employee_id AS employee_code
+      `SELECT r.*,
+         DATE_FORMAT(r.correction_date, '%Y-%m-%d') AS correction_date_text,
+         DATE_FORMAT(r.requested_punch_in, '%Y-%m-%d %H:%i:%s') AS requested_punch_in_text,
+         DATE_FORMAT(r.requested_punch_out, '%Y-%m-%d %H:%i:%s') AS requested_punch_out_text,
+         e.full_name, e.employee_id AS employee_code
        FROM attendance_correction_requests r
        JOIN employees e ON e.id = r.employee_id
        WHERE r.id = ? FOR UPDATE`,
@@ -190,17 +211,29 @@ export const reviewCorrectionRequest = asyncHandler(async (req, res) => {
       throw new AppError('You cannot approve your own attendance correction.', 403);
     }
 
-    let punchIn = request.requested_punch_in;
-    let punchOut = request.requested_punch_out;
-    if (req.body.approvedPunchIn) punchIn = toSqlDateTime(request.correction_date.toISOString?.().slice(0, 10) || String(request.correction_date).slice(0, 10), req.body.approvedPunchIn);
-    if (req.body.approvedPunchOut) punchOut = toSqlDateTime(request.correction_date.toISOString?.().slice(0, 10) || String(request.correction_date).slice(0, 10), req.body.approvedPunchOut);
+    const correctionDate = request.correction_date_text || String(request.correction_date).slice(0, 10);
+    const [[currentAttendance]] = await connection.query(
+      `SELECT
+         DATE_FORMAT(punch_in, '%Y-%m-%d %H:%i:%s') AS punch_in_text,
+         DATE_FORMAT(punch_out, '%Y-%m-%d %H:%i:%s') AS punch_out_text
+       FROM attendance
+       WHERE employee_id = ? AND attendance_date = ?
+       LIMIT 1 FOR UPDATE`,
+      [request.employee_id, correctionDate]
+    );
+
+    // Correct only the field(s) requested. Do not erase the other valid punch.
+    let punchIn = request.requested_punch_in_text || currentAttendance?.punch_in_text || null;
+    let punchOut = request.requested_punch_out_text || currentAttendance?.punch_out_text || null;
+    if (req.body.approvedPunchIn) punchIn = toSqlDateTime(correctionDate, req.body.approvedPunchIn);
+    if (req.body.approvedPunchOut) punchOut = toSqlDateTime(correctionDate, req.body.approvedPunchOut);
 
     if (decision === 'APPROVED') {
-      if (punchIn && punchOut && new Date(punchOut) <= new Date(punchIn)) {
+      if (punchIn && punchOut && wallClockMinutes(punchIn, punchOut) <= 0) {
         throw new AppError('Approved punch-out must be later than punch-in.', 400);
       }
       const totalMinutes = punchIn && punchOut
-        ? Math.max(Math.round((new Date(punchOut) - new Date(punchIn)) / 60000), 0)
+        ? Math.max(wallClockMinutes(punchIn, punchOut), 0)
         : 0;
       const status = deriveAttendanceStatus(punchIn, punchOut);
 
@@ -212,7 +245,7 @@ export const reviewCorrectionRequest = asyncHandler(async (req, res) => {
            punch_in = VALUES(punch_in), punch_out = VALUES(punch_out),
            total_work_minutes = VALUES(total_work_minutes), status = VALUES(status),
            remarks = VALUES(remarks), updated_at = CURRENT_TIMESTAMP`,
-        [request.employee_id, request.correction_date, punchIn, punchOut, totalMinutes, status,
+        [request.employee_id, correctionDate, punchIn, punchOut, totalMinutes, status,
           `Attendance corrected by ${req.user.role}. ${String(req.body.reviewerComment || '').trim()}`]
       );
     }
@@ -228,7 +261,7 @@ export const reviewCorrectionRequest = asyncHandler(async (req, res) => {
       `INSERT INTO audit_logs (employee_id, action, entity_type, entity_id, new_values, ip_address)
        VALUES (?, ?, 'ATTENDANCE_CORRECTION', ?, ?, ?)`,
       [req.user.id, `ATTENDANCE_CORRECTION_${decision}`, String(requestId),
-        JSON.stringify({ employeeId: request.employee_id, date: request.correction_date, punchIn, punchOut }),
+        JSON.stringify({ employeeId: request.employee_id, date: correctionDate, punchIn, punchOut }),
         req.ip || null]
     );
 
@@ -252,13 +285,13 @@ export const adminUpsertAttendance = asyncHandler(async (req, res) => {
 
   const punchIn = toSqlDateTime(date, req.body.punchIn);
   const punchOut = toSqlDateTime(date, req.body.punchOut);
-  if (punchIn && punchOut && new Date(punchOut) <= new Date(punchIn)) {
+  if (punchIn && punchOut && wallClockMinutes(punchIn, punchOut) <= 0) {
     throw new AppError('Punch-out must be later than punch-in.', 400);
   }
   const forcedStatus = req.body.status || null;
   const allowedStatuses = ['PRESENT','HALF_DAY','ABSENT','LEAVE','WEEK_OFF','HOLIDAY','MISSING_PUNCH'];
   if (forcedStatus && !allowedStatuses.includes(forcedStatus)) throw new AppError('Invalid attendance status.', 400);
-  const totalMinutes = punchIn && punchOut ? Math.max(Math.round((new Date(punchOut) - new Date(punchIn)) / 60000), 0) : 0;
+  const totalMinutes = punchIn && punchOut ? Math.max(wallClockMinutes(punchIn, punchOut), 0) : 0;
   const status = deriveAttendanceStatus(punchIn, punchOut, forcedStatus);
 
   await pool.query(

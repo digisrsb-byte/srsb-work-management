@@ -3,11 +3,21 @@ import { Clock3, LogIn, LogOut, X } from 'lucide-react';
 import api from '../../services/api.js';
 import AttendanceCalendar from '../../components/AttendanceCalendar.jsx';
 
-const formatTime = (value) => value ? new Date(value).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—';
-const hours = (minutes) => `${Math.floor(Number(minutes || 0) / 60)}h ${Number(minutes || 0) % 60}m`;
+function indiaDateValue() { return new Date(Date.now() + 330 * 60 * 1000).toISOString().slice(0, 10); }
+
+function wallClockTime(value) {
+  if (!value) return '—';
+  const match = String(value).trim().match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+  if (!match) return String(value);
+  const hour = Number(match[4]);
+  const displayHour = hour % 12 || 12;
+  return `${String(displayHour).padStart(2, '0')}:${match[5]} ${hour >= 12 ? 'PM' : 'AM'}`;
+}
+const formatTime = wallClockTime;
+const hours = (minutes) => { const value = Math.max(Number(minutes || 0), 0); return `${Math.floor(value / 60)}h ${value % 60}m`; };
 
 export default function MyAttendance() {
-  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [month, setMonth] = useState(indiaDateValue().slice(0, 7));
   const [calendar, setCalendar] = useState(null);
   const [dashboard, setDashboard] = useState(null);
   const [selected, setSelected] = useState(null);
@@ -28,7 +38,7 @@ export default function MyAttendance() {
   }
 
   const today = dashboard?.attendance;
-  const todayDate = new Date().toISOString().slice(0, 10);
+  const todayDate = indiaDateValue();
   const todayCalendar = calendar?.calendar?.find(
     (item) => item.date === todayDate
   );

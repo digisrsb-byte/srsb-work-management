@@ -1,6 +1,9 @@
 import { pool } from '../config/database.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
+const INDIA_NOW_SQL = 'DATE_ADD(UTC_TIMESTAMP(), INTERVAL 330 MINUTE)';
+const INDIA_DATE_SQL = 'DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 330 MINUTE))';
+
 async function loadGreetingContext(employeeId, departmentId = null) {
   const [holidays] = await pool.query(
     `SELECT h.id, h.holiday_name, h.holiday_date, h.holiday_type,
@@ -134,11 +137,11 @@ export const employeeDashboard = asyncHandler(async (req, res) => {
     `SELECT punch_in, punch_out, status,
        CASE
          WHEN punch_in IS NOT NULL AND punch_out IS NULL
-         THEN TIMESTAMPDIFF(MINUTE, punch_in, NOW())
-         ELSE COALESCE(total_work_minutes, 0)
+         THEN GREATEST(TIMESTAMPDIFF(MINUTE, punch_in, ${INDIA_NOW_SQL}), 0)
+         ELSE GREATEST(COALESCE(total_work_minutes, 0), 0)
        END AS total_work_minutes
      FROM attendance
-     WHERE employee_id = ? AND attendance_date = CURDATE()`,
+     WHERE employee_id = ? AND attendance_date = ${INDIA_DATE_SQL}`,
     [employeeDbId]
   );
 
@@ -147,9 +150,9 @@ export const employeeDashboard = asyncHandler(async (req, res) => {
        COALESCE(SUM(
          CASE
            WHEN punch_in IS NULL THEN 0
-           WHEN punch_out IS NULL AND attendance_date = CURDATE()
-             THEN TIMESTAMPDIFF(MINUTE, punch_in, NOW())
-           ELSE COALESCE(total_work_minutes, 0)
+           WHEN punch_out IS NULL AND attendance_date = ${INDIA_DATE_SQL}
+             THEN GREATEST(TIMESTAMPDIFF(MINUTE, punch_in, ${INDIA_NOW_SQL}), 0)
+           ELSE GREATEST(COALESCE(total_work_minutes, 0), 0)
          END
        ), 0) minutes,
        SUM(punch_in IS NOT NULL AND status = 'PRESENT') presentDays,
@@ -159,7 +162,7 @@ export const employeeDashboard = asyncHandler(async (req, res) => {
        SUM(status = 'HOLIDAY') holidayDays
      FROM attendance
      WHERE employee_id = ?
-       AND DATE_FORMAT(attendance_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')`,
+       AND DATE_FORMAT(attendance_date, '%Y-%m') = DATE_FORMAT(${INDIA_DATE_SQL}, '%Y-%m')`,
     [employeeDbId]
   );
 

@@ -4,7 +4,7 @@ import { Link, useLocation } from 'react-router-dom';
 import api from '../../services/api.js';
 import StatCard from '../../components/StatCard.jsx';
 
-const hours = (minutes = 0) => `${Math.floor(Number(minutes || 0) / 60)}h ${Number(minutes || 0) % 60}m`;
+const hours = (minutes = 0) => { const value = Math.max(Number(minutes || 0), 0); return `${Math.floor(value / 60)}h ${value % 60}m`; };
 
 export default function EmployeeDashboard() {
   const [data, setData] = useState(null);

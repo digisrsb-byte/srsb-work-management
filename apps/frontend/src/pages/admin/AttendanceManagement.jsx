@@ -37,27 +37,26 @@ function label(value) {
   return statusLabels[value] || String(value || '').replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function time(value) {
-  return value
-    ? new Date(value).toLocaleTimeString('en-IN', {
-        hour: '2-digit',
-        minute: '2-digit'
-      })
-    : '—';
+function wallClockTime(value) {
+  if (!value) return '—';
+  const match = String(value).trim().match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+  if (!match) return String(value);
+  const hour = Number(match[4]);
+  const displayHour = hour % 12 || 12;
+  return `${String(displayHour).padStart(2, '0')}:${match[5]} ${hour >= 12 ? 'PM' : 'AM'}`;
 }
 
+const time = wallClockTime;
+
 function hours(minutes) {
-  const value = Number(minutes || 0);
+  const value = Math.max(Number(minutes || 0), 0);
   return `${Math.floor(value / 60)}h ${value % 60}m`;
 }
 
 function inputDateTime(date, value, fallback) {
   if (value) {
-    const parsed = new Date(value);
-    if (!Number.isNaN(parsed.getTime())) {
-      const local = new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60000);
-      return local.toISOString().slice(0, 16);
-    }
+    const wallClock = String(value).trim().match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})/);
+    if (wallClock) return `${wallClock[1]}T${wallClock[2]}:${wallClock[3]}`;
   }
   return fallback ? `${date}T${fallback}` : '';
 }

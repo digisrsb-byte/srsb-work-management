@@ -11,6 +11,33 @@ const allowedStatuses = [
   'HOLIDAY',
   'MISSING_PUNCH'
 ];
+const INDIA_NOW_SQL = 'DATE_ADD(UTC_TIMESTAMP(), INTERVAL 330 MINUTE)';
+const INDIA_DATE_SQL = 'DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 330 MINUTE))';
+
+function indiaDateNow() {
+  return new Date(Date.now() + 330 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function normalizeWallClockDateTime(value, label = 'Date/time') {
+  const text = String(value || '').trim();
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!match) throw new AppError(`${label} is invalid.`, 400);
+  return `${match[1]} ${match[2]}:${match[3]}:${match[4] || '00'}`;
+}
+
+function wallClockMinutes(start, end) {
+  if (!start || !end) return 0;
+  const parse = (value) => {
+    const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (!match) return NaN;
+    return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]), Number(match[6] || 0));
+  };
+  const startMs = parse(start);
+  const endMs = parse(end);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return NaN;
+  return Math.round((endMs - startMs) / 60000);
+}
+
 
 function ensureEmployeeAccount(req) {
   if (req.user.accountType === 'SYSTEM') {
@@ -52,7 +79,7 @@ export const punchIn = asyncHandler(async (req, res) => {
     `SELECT id, punch_in
      FROM attendance
      WHERE employee_id = ?
-       AND attendance_date = CURDATE()
+       AND attendance_date = ${INDIA_DATE_SQL}
      LIMIT 1`,
     [employeeId]
   );
@@ -68,7 +95,7 @@ export const punchIn = asyncHandler(async (req, res) => {
     await pool.query(
       `UPDATE attendance
        SET
-         punch_in = NOW(),
+         punch_in = ${INDIA_NOW_SQL},
          punch_out = NULL,
          total_work_minutes = 0,
          status = 'PRESENT'
@@ -84,7 +111,7 @@ export const punchIn = asyncHandler(async (req, res) => {
          total_work_minutes,
          status
        )
-       VALUES (?, CURDATE(), NOW(), 0, 'PRESENT')`,
+       VALUES (?, ${INDIA_DATE_SQL}, ${INDIA_NOW_SQL}, 0, 'PRESENT')`,
       [employeeId]
     );
   }
@@ -99,7 +126,7 @@ export const punchIn = asyncHandler(async (req, res) => {
        status
      FROM attendance
      WHERE employee_id = ?
-       AND attendance_date = CURDATE()
+       AND attendance_date = ${INDIA_DATE_SQL}
      LIMIT 1`,
     [employeeId]
   );
@@ -123,7 +150,7 @@ export const punchOut = asyncHandler(async (req, res) => {
        punch_out
      FROM attendance
      WHERE employee_id = ?
-       AND attendance_date = CURDATE()
+       AND attendance_date = ${INDIA_DATE_SQL}
      LIMIT 1`,
     [employeeId]
   );
@@ -147,15 +174,11 @@ export const punchOut = asyncHandler(async (req, res) => {
   await pool.query(
     `UPDATE attendance
      SET
-       punch_out = NOW(),
+       punch_out = ${INDIA_NOW_SQL},
        total_work_minutes =
-         TIMESTAMPDIFF(MINUTE, punch_in, NOW()),
+         GREATEST(TIMESTAMPDIFF(MINUTE, punch_in, ${INDIA_NOW_SQL}), 0),
        status = CASE
-         WHEN TIMESTAMPDIFF(
-           MINUTE,
-           punch_in,
-           NOW()
-         ) < 480
+         WHEN GREATEST(TIMESTAMPDIFF(MINUTE, punch_in, ${INDIA_NOW_SQL}), 0) < 480
          THEN 'HALF_DAY'
 
          ELSE 'PRESENT'
@@ -196,13 +219,9 @@ export const myAttendance = asyncHandler(
          CASE
            WHEN punch_in IS NOT NULL
              AND punch_out IS NULL
-             AND attendance_date = CURDATE()
-           THEN TIMESTAMPDIFF(
-             MINUTE,
-             punch_in,
-             NOW()
-           )
-           ELSE COALESCE(total_work_minutes, 0)
+             AND attendance_date = ${INDIA_DATE_SQL}
+           THEN GREATEST(TIMESTAMPDIFF(MINUTE, punch_in, ${INDIA_NOW_SQL}), 0)
+           ELSE GREATEST(COALESCE(total_work_minutes, 0), 0)
          END AS total_work_minutes,
          status,
          remarks
@@ -295,12 +314,8 @@ export const listEmployeeAttendance = asyncHandler(
          CASE
            WHEN a.punch_in IS NOT NULL
              AND a.punch_out IS NULL
-             AND a.attendance_date = CURDATE()
-           THEN TIMESTAMPDIFF(
-             MINUTE,
-             a.punch_in,
-             NOW()
-           )
+             AND a.attendance_date = ${INDIA_DATE_SQL}
+           THEN GREATEST(TIMESTAMPDIFF(MINUTE, a.punch_in, ${INDIA_NOW_SQL}), 0)
            ELSE COALESCE(
              a.total_work_minutes,
              0
@@ -348,12 +363,12 @@ function attendanceDateValue(value) {
 
 export const attendanceDayOverview = asyncHandler(async (req, res) => {
   const selectedDate = attendanceDateValue(
-    req.query.date || new Date().toISOString().slice(0, 10)
+    req.query.date || indiaDateNow()
   );
 
   const [[context]] = await pool.query(
     `SELECT
-       DATE_FORMAT(CURDATE(), '%Y-%m-%d') AS today,
+       DATE_FORMAT(${INDIA_DATE_SQL}, '%Y-%m-%d') AS today,
        UPPER(DAYNAME(?)) AS weekday`,
     [selectedDate]
   );
@@ -372,9 +387,9 @@ export const attendanceDayOverview = asyncHandler(async (req, res) => {
        CASE
          WHEN a.punch_in IS NOT NULL
            AND a.punch_out IS NULL
-           AND ? = CURDATE()
-         THEN TIMESTAMPDIFF(MINUTE, a.punch_in, NOW())
-         ELSE COALESCE(a.total_work_minutes, 0)
+           AND ? = ${INDIA_DATE_SQL}
+         THEN GREATEST(TIMESTAMPDIFF(MINUTE, a.punch_in, ${INDIA_NOW_SQL}), 0)
+         ELSE GREATEST(COALESCE(a.total_work_minutes, 0), 0)
        END AS total_work_minutes,
        a.status AS stored_status,
        a.remarks,
@@ -546,7 +561,7 @@ function monthRange(monthValue) {
 const dayNames = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
 
 export const attendanceCalendar = asyncHandler(async (req, res) => {
-  const range = monthRange(req.query.month || new Date().toISOString().slice(0, 7));
+  const range = monthRange(req.query.month || indiaDateNow().slice(0, 7));
   const isAdmin = ['SUPER_ADMIN','ADMIN','HR','MANAGER'].includes(req.user.role);
   let employeeId = req.user.id;
   if (req.query.employeeId) {
@@ -574,9 +589,9 @@ export const attendanceCalendar = asyncHandler(async (req, res) => {
        punch_in,
        punch_out,
        CASE
-         WHEN punch_in IS NOT NULL AND punch_out IS NULL AND attendance_date = CURDATE()
-         THEN TIMESTAMPDIFF(MINUTE, punch_in, NOW())
-         ELSE COALESCE(total_work_minutes, 0)
+         WHEN punch_in IS NOT NULL AND punch_out IS NULL AND attendance_date = ${INDIA_DATE_SQL}
+         THEN GREATEST(TIMESTAMPDIFF(MINUTE, punch_in, ${INDIA_NOW_SQL}), 0)
+         ELSE GREATEST(COALESCE(total_work_minutes, 0), 0)
        END AS total_work_minutes,
        status, remarks
      FROM attendance
@@ -593,7 +608,7 @@ export const attendanceCalendar = asyncHandler(async (req, res) => {
        AND (department_id IS NULL OR department_id = ?)`,
     [range.start, range.end, employee.department_id]
   );
-  const [[todayRow]] = await pool.query('SELECT DATE_FORMAT(CURDATE(), "%Y-%m-%d") AS today');
+  const [[todayRow]] = await pool.query(`SELECT DATE_FORMAT(${INDIA_DATE_SQL}, "%Y-%m-%d") AS today`);
   const today = todayRow.today;
   const recordMap = new Map(
     records.map((record) => [record.attendance_date, record])
@@ -712,14 +727,13 @@ export const adminAdjustAttendance = asyncHandler(async (req, res) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new AppError('Select a valid attendance date.', 400);
   const status = String(req.body.status || '').toUpperCase();
   if (!allowedStatuses.includes(status)) throw new AppError('Select a valid attendance status.', 400);
-  const punchIn = req.body.punchIn ? new Date(req.body.punchIn) : null;
-  const punchOut = req.body.punchOut ? new Date(req.body.punchOut) : null;
-  if (punchIn && Number.isNaN(punchIn.getTime())) throw new AppError('Punch-in time is invalid.', 400);
-  if (punchOut && Number.isNaN(punchOut.getTime())) throw new AppError('Punch-out time is invalid.', 400);
-  if (punchIn && punchOut && punchOut <= punchIn) throw new AppError('Punch-out must be after punch-in.', 400);
-  const punchInSql = punchIn ? punchIn.toISOString().slice(0, 19).replace('T', ' ') : null;
-  const punchOutSql = punchOut ? punchOut.toISOString().slice(0, 19).replace('T', ' ') : null;
-  const minutes = punchIn && punchOut ? Math.max(Math.round((punchOut - punchIn) / 60000), 0) : 0;
+  const punchInSql = req.body.punchIn ? normalizeWallClockDateTime(req.body.punchIn, 'Punch-in time') : null;
+  const punchOutSql = req.body.punchOut ? normalizeWallClockDateTime(req.body.punchOut, 'Punch-out time') : null;
+  if (punchInSql && punchInSql.slice(0, 10) !== date) throw new AppError('Punch-in must belong to the selected attendance date.', 400);
+  if (punchOutSql && punchOutSql.slice(0, 10) !== date) throw new AppError('Punch-out must belong to the selected attendance date.', 400);
+  const diffMinutes = punchInSql && punchOutSql ? wallClockMinutes(punchInSql, punchOutSql) : 0;
+  if (punchInSql && punchOutSql && (!Number.isFinite(diffMinutes) || diffMinutes <= 0)) throw new AppError('Punch-out must be after punch-in.', 400);
+  const minutes = punchInSql && punchOutSql ? Math.max(diffMinutes, 0) : 0;
   const remarks = String(req.body.remarks || '').trim() || `Adjusted by ${req.user.fullName || 'Admin'}`;
 
   const [[employee]] = await pool.query(
