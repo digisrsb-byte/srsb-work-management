@@ -126,6 +126,7 @@ export const listCandidates = asyncHandler(async (req, res) => {
   const values = [];
   const stage = String(req.query.stage || '').trim();
   const keyword = String(req.query.search || '').trim().toLowerCase();
+  const jobRole = String(req.query.jobRole || '').trim();
 
   if (stage && stage !== 'ALL') {
     if (!allowedStages.includes(stage)) throw new AppError('Invalid candidate stage.', 400);
@@ -135,6 +136,10 @@ export const listCandidates = asyncHandler(async (req, res) => {
   if (req.query.openingId) {
     conditions.push('application.opening_id = ?');
     values.push(positiveId(req.query.openingId, 'opening filter'));
+  }
+  if (jobRole) {
+    conditions.push('LOWER(opening.title) = LOWER(?)');
+    values.push(jobRole);
   }
   if (req.query.assignedRecruiterId) {
     conditions.push('application.assigned_recruiter_id = ?');
@@ -200,7 +205,7 @@ export const listCandidates = asyncHandler(async (req, res) => {
       history_count: Number(row.history_count || 0),
       sourcing_count: Number(row.sourcing_count || 0)
     })),
-    meta: { count: rows.length, search: keyword || null, stage: stage || 'ALL' }
+    meta: { count: rows.length, search: keyword || null, stage: stage || 'ALL', jobRole: jobRole || 'ALL' }
   });
 });
 
@@ -625,4 +630,5 @@ export const deleteCandidateHistory = asyncHandler(async (req, res) => {
   if (!result.affectedRows) throw new AppError('Candidate history record not found.', 404);
   res.json({ success: true, message: 'Candidate placement history deleted.' });
 });
+
 

@@ -32,6 +32,7 @@ export default function Candidates() {
   const [reference, setReference] = useState({ clients: [], openings: [], recruiters: [], sources: sourceOptions });
   const [search, setSearch] = useState('');
   const [stage, setStage] = useState('');
+  const [jobRole, setJobRole] = useState('');
   const [candidateForm, setCandidateForm] = useState(emptyCandidate);
   const [showCandidateForm, setShowCandidateForm] = useState(false);
   const [editingCandidate, setEditingCandidate] = useState(null);
@@ -56,7 +57,7 @@ export default function Candidates() {
   const loadCandidates = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await api.get('/candidates', { params: { search: debouncedSearch || undefined, stage: stage || undefined } });
+      const response = await api.get('/candidates', { params: { search: debouncedSearch || undefined, stage: stage || undefined, jobRole: jobRole || undefined } });
       const data = response.data.data || [];
       setRows(data);
       return data;
@@ -65,12 +66,17 @@ export default function Candidates() {
     } finally {
       setLoading(false);
     }
-  }, [debouncedSearch, stage]);
+  }, [debouncedSearch, stage, jobRole]);
 
   useEffect(() => {
     Promise.all([loadReference(), loadCandidates()]).catch((requestError) => setError(requestError.response?.data?.message || 'Unable to load candidate information.'));
   }, [loadReference, loadCandidates]);
 
+  const jobRoles = useMemo(
+    () => [...new Set((reference.openings || []).map((opening) => String(opening.title || '').trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b)),
+    [reference.openings]
+  );
   const candidates = useMemo(() => {
     const map = new Map();
     rows.forEach((row) => {
@@ -277,7 +283,7 @@ export default function Candidates() {
         <div className="form-actions"><button className="btn btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Save Candidate'}</button><button className="btn btn-secondary" type="button" onClick={() => setShowCandidateForm(false)}>Cancel</button></div>
       </form>}
 
-      <div className="card toolbar"><div className="search-box"><Search size={18}/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search candidate, company, skill or recruiter" /></div><select className="input compact-select" value={stage} onChange={(event) => setStage(event.target.value)}><option value="">All Stages</option>{stages.map((item) => <option key={item} value={item}>{label(item)}</option>)}</select></div>
+      <div className="card toolbar"><div className="search-box"><Search size={18}/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search candidate, company, skill or recruiter" /></div><select className="input compact-select" value={stage} onChange={(event) => setStage(event.target.value)}><option value="">All Stages</option>{stages.map((item) => <option key={item} value={item}>{label(item)}</option>)}</select><select className="input compact-select" value={jobRole} onChange={(event) => setJobRole(event.target.value)} title="Filter by job role"><option value="">All Job Roles</option>{jobRoles.map((item) => <option key={item} value={item}>{item}</option>)}</select></div>
 
       <div className="candidate-list">
         {loading ? <div className="card">Loading candidates...</div> : candidates.length === 0 ? <div className="card empty-state">No candidates found.</div> : candidates.map((candidate) => <article className="card candidate-card" key={candidate.id}>
@@ -302,5 +308,6 @@ export default function Candidates() {
     </div>
   );
 }
+
 
 
