@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+﻿import { useCallback, useEffect, useState } from 'react';
 import { Check, Clock3, PencilLine, Search, X, XCircle } from 'lucide-react';
 import api from '../../services/api.js';
 import useDebouncedValue from '../../hooks/useDebouncedValue.js';
@@ -16,7 +16,22 @@ const emptyManual = {
 const statusOptions = ['PRESENT','HALF_DAY','ABSENT','LEAVE','WEEK_OFF','HOLIDAY','MISSING_PUNCH'];
 
 function formatDateTime(value) {
-  return value ? new Date(value).toLocaleString('en-IN') : '—';
+  if (!value) return '—';
+
+  // Attendance punch times are wall-clock values entered by the employee.
+  // Do NOT pass them through new Date(...), because an ISO value such as
+  // 2026-08-03T09:30:00.000Z would be displayed as 15:00 in India.
+  const raw = String(value).trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+
+  if (!match) return raw;
+
+  const [, year, month, day, hourText, minute, second = '00'] = match;
+  const hour = Number(hourText);
+  const displayHour = hour % 12 || 12;
+  const period = hour >= 12 ? 'PM' : 'AM';
+
+  return `${Number(day)}/${Number(month)}/${year}, ${displayHour}:${minute}:${second} ${period}`;
 }
 
 export default function AttendanceCorrections() {
@@ -119,18 +134,18 @@ export default function AttendanceCorrections() {
             <label className="form-group"><span>Punch Out</span><input className="input" type="time" value={manual.punchOut} onChange={(event) => setManual((current) => ({ ...current, punchOut: event.target.value }))} /></label>
             <label className="form-group"><span>Remarks</span><input className="input" value={manual.remarks} onChange={(event) => setManual((current) => ({ ...current, remarks: event.target.value }))} placeholder="Reason for manual entry" /></label>
           </div>
-          <div className="form-actions"><button className="btn btn-secondary" type="button" onClick={() => setShowManual(false)}>Cancel</button><button className="btn btn-primary" type="submit" disabled={processing === 'manual'}>{processing === 'manual' ? 'Saving…' : 'Save Attendance'}</button></div>
+          <div className="form-actions"><button className="btn btn-secondary" type="button" onClick={() => setShowManual(false)}>Cancel</button><button className="btn btn-primary" type="submit" disabled={processing === 'manual'}>{processing === 'manual' ? 'Savingâ€¦' : 'Save Attendance'}</button></div>
         </form>
       )}
 
       <div className="card">
-        <div className="toolbar"><div className="search-box"><Search size={18} /><input value={search} onInput={(event) => setSearch(event.currentTarget.value)} placeholder="Search employee, issue, date or reason" /></div><select className="input compact-select" value={status} onChange={(event) => setStatus(event.target.value)}><option value="ALL">All requests</option><option value="PENDING">Pending</option><option value="APPROVED">Approved</option><option value="REJECTED">Rejected</option></select><button className="btn btn-secondary" type="button" onClick={loadRequests} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button></div>
+        <div className="toolbar"><div className="search-box"><Search size={18} /><input value={search} onInput={(event) => setSearch(event.currentTarget.value)} placeholder="Search employee, issue, date or reason" /></div><select className="input compact-select" value={status} onChange={(event) => setStatus(event.target.value)}><option value="ALL">All requests</option><option value="PENDING">Pending</option><option value="APPROVED">Approved</option><option value="REJECTED">Rejected</option></select><button className="btn btn-secondary" type="button" onClick={loadRequests} disabled={loading}>{loading ? 'Refreshingâ€¦' : 'Refresh'}</button></div>
 
         <div className="request-list">
           {!loading && !requests.length && <div className="empty-state"><Clock3 size={34} /><strong>No attendance correction requests found.</strong></div>}
           {requests.map((request) => (
             <article className="request-card-modern" key={request.id}>
-              <div className="request-card-header"><div><h3>{request.employee_name}</h3><p>{request.employee_code} · {request.designation || 'No designation'}</p></div><span className={`badge badge-${String(request.status).toLowerCase()}`}>{request.status}</span></div>
+              <div className="request-card-header"><div><h3>{request.employee_name}</h3><p>{request.employee_code} Â· {request.designation || 'No designation'}</p></div><span className={`badge badge-${String(request.status).toLowerCase()}`}>{request.status}</span></div>
               <div className="request-detail-grid"><div><span>Date</span><strong>{String(request.correction_date).slice(0, 10)}</strong></div><div><span>Issue</span><strong>{request.issue_type.replaceAll('_', ' ')}</strong></div><div><span>Original Punch In</span><strong>{formatDateTime(request.original_punch_in)}</strong></div><div><span>Original Punch Out</span><strong>{formatDateTime(request.original_punch_out)}</strong></div><div><span>Requested Punch In</span><strong>{formatDateTime(request.requested_punch_in)}</strong></div><div><span>Requested Punch Out</span><strong>{formatDateTime(request.requested_punch_out)}</strong></div></div>
               <div className="request-reason"><strong>Employee reason:</strong> {request.reason}</div>
               {request.status === 'PENDING' ? <><textarea className="input" rows="2" value={comments[request.id] || ''} onChange={(event) => setComments((current) => ({ ...current, [request.id]: event.target.value }))} placeholder="Admin comment (optional)" /><div className="card-actions"><button className="btn btn-secondary" type="button" onClick={() => review(request.id, 'REJECTED')} disabled={processing === request.id}><XCircle size={17} /> Reject</button><button className="btn btn-primary" type="button" onClick={() => review(request.id, 'APPROVED')} disabled={processing === request.id}><Check size={17} /> Approve</button></div></> : request.reviewer_comment && <div className="review-note"><strong>Review:</strong> {request.reviewer_comment}</div>}
@@ -141,3 +156,4 @@ export default function AttendanceCorrections() {
     </div>
   );
 }
+

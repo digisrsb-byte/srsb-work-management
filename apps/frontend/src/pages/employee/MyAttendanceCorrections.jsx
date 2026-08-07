@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+﻿import { useCallback, useEffect, useState } from 'react';
 import { Clock3, Plus } from 'lucide-react';
 import api from '../../services/api.js';
 
@@ -20,7 +20,22 @@ const issues = [
 ];
 
 function formatDateTime(value) {
-  return value ? new Date(value).toLocaleString('en-IN') : '—';
+  if (!value) return '—';
+
+  // Attendance punch times are wall-clock values entered by the employee.
+  // Do NOT pass them through new Date(...), because an ISO value such as
+  // 2026-08-03T09:30:00.000Z would be displayed as 15:00 in India.
+  const raw = String(value).trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+
+  if (!match) return raw;
+
+  const [, year, month, day, hourText, minute, second = '00'] = match;
+  const hour = Number(hourText);
+  const displayHour = hour % 12 || 12;
+  const period = hour >= 12 ? 'PM' : 'AM';
+
+  return `${Number(day)}/${Number(month)}/${year}, ${displayHour}:${minute}:${second} ${period}`;
 }
 
 export default function MyAttendanceCorrections() {
@@ -69,9 +84,10 @@ export default function MyAttendanceCorrections() {
       {message && <div className="message message-success">{message}</div>}
       {error && <div className="message message-error">{error}</div>}
 
-      {showForm && <form className="card form-card" onSubmit={submit}><div className="form-grid form-grid-3"><label className="form-group"><span>Attendance Date *</span><input className="input" type="date" max={new Date().toISOString().slice(0, 10)} value={form.correctionDate} onChange={(event) => setForm((current) => ({ ...current, correctionDate: event.target.value }))} required /></label><label className="form-group"><span>Issue *</span><select className="input" value={form.issueType} onChange={(event) => setForm((current) => ({ ...current, issueType: event.target.value }))}>{issues.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className="form-group"><span>Requested Punch In</span><input className="input" type="time" value={form.requestedPunchIn} onChange={(event) => setForm((current) => ({ ...current, requestedPunchIn: event.target.value }))} /></label><label className="form-group"><span>Requested Punch Out</span><input className="input" type="time" value={form.requestedPunchOut} onChange={(event) => setForm((current) => ({ ...current, requestedPunchOut: event.target.value }))} /></label><label className="form-group form-span-2"><span>Reason *</span><textarea className="input" rows="3" value={form.reason} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} required minLength={5} /></label></div><div className="form-actions"><button className="btn btn-secondary" type="button" onClick={() => setShowForm(false)}>Cancel</button><button className="btn btn-primary" type="submit" disabled={saving}>{saving ? 'Submitting…' : 'Submit Request'}</button></div></form>}
+      {showForm && <form className="card form-card" onSubmit={submit}><div className="form-grid form-grid-3"><label className="form-group"><span>Attendance Date *</span><input className="input" type="date" max={new Date().toISOString().slice(0, 10)} value={form.correctionDate} onChange={(event) => setForm((current) => ({ ...current, correctionDate: event.target.value }))} required /></label><label className="form-group"><span>Issue *</span><select className="input" value={form.issueType} onChange={(event) => setForm((current) => ({ ...current, issueType: event.target.value }))}>{issues.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className="form-group"><span>Requested Punch In</span><input className="input" type="time" value={form.requestedPunchIn} onChange={(event) => setForm((current) => ({ ...current, requestedPunchIn: event.target.value }))} /></label><label className="form-group"><span>Requested Punch Out</span><input className="input" type="time" value={form.requestedPunchOut} onChange={(event) => setForm((current) => ({ ...current, requestedPunchOut: event.target.value }))} /></label><label className="form-group form-span-2"><span>Reason *</span><textarea className="input" rows="3" value={form.reason} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} required minLength={5} /></label></div><div className="form-actions"><button className="btn btn-secondary" type="button" onClick={() => setShowForm(false)}>Cancel</button><button className="btn btn-primary" type="submit" disabled={saving}>{saving ? 'Submittingâ€¦' : 'Submit Request'}</button></div></form>}
 
-      <div className="card"><div className="section-heading"><div><h2>My Requests</h2><p className="page-subtitle">Admin-approved requests automatically update your attendance record.</p></div><button className="btn btn-secondary" type="button" onClick={loadRequests} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button></div><div className="request-list">{!loading && !requests.length && <div className="empty-state"><Clock3 size={34} /><strong>No correction requests submitted.</strong></div>}{requests.map((request) => <article className="request-card-modern" key={request.id}><div className="request-card-header"><div><h3>{String(request.correction_date).slice(0, 10)}</h3><p>{request.issue_type.replaceAll('_', ' ')}</p></div><span className={`badge badge-${String(request.status).toLowerCase()}`}>{request.status}</span></div><div className="request-detail-grid"><div><span>Requested Punch In</span><strong>{formatDateTime(request.requested_punch_in)}</strong></div><div><span>Requested Punch Out</span><strong>{formatDateTime(request.requested_punch_out)}</strong></div></div><div className="request-reason"><strong>Reason:</strong> {request.reason}</div>{request.reviewer_comment && <div className="review-note"><strong>Admin comment:</strong> {request.reviewer_comment}</div>}</article>)}</div></div>
+      <div className="card"><div className="section-heading"><div><h2>My Requests</h2><p className="page-subtitle">Admin-approved requests automatically update your attendance record.</p></div><button className="btn btn-secondary" type="button" onClick={loadRequests} disabled={loading}>{loading ? 'Refreshingâ€¦' : 'Refresh'}</button></div><div className="request-list">{!loading && !requests.length && <div className="empty-state"><Clock3 size={34} /><strong>No correction requests submitted.</strong></div>}{requests.map((request) => <article className="request-card-modern" key={request.id}><div className="request-card-header"><div><h3>{String(request.correction_date).slice(0, 10)}</h3><p>{request.issue_type.replaceAll('_', ' ')}</p></div><span className={`badge badge-${String(request.status).toLowerCase()}`}>{request.status}</span></div><div className="request-detail-grid"><div><span>Requested Punch In</span><strong>{formatDateTime(request.requested_punch_in)}</strong></div><div><span>Requested Punch Out</span><strong>{formatDateTime(request.requested_punch_out)}</strong></div></div><div className="request-reason"><strong>Reason:</strong> {request.reason}</div>{request.reviewer_comment && <div className="review-note"><strong>Admin comment:</strong> {request.reviewer_comment}</div>}</article>)}</div></div>
     </div>
   );
 }
+
