@@ -375,7 +375,7 @@ export async function downloadInvoicePdf(invoice) {
   const items = invoice.items || [];
   for (let index = 0; index < Math.max(items.length, 1); index += 1) {
     const item = items[index] || {};
-    const blockHeight = items.length > 1 ? 30 : 26;
+    const blockHeight = items.length > 1 ? 37 : 32;
     if (y + blockHeight + 70 > pageHeight - 8) {
       doc.addPage();
       y = 10;
@@ -462,4 +462,5 @@ export async function downloadInvoicePdf(invoice) {
   const fileName = `${invoice.invoice_number || 'SRSB-Invoice'}-${String(invoice.company_name || 'Client').replace(/[^a-z0-9]+/gi, '-')}.pdf`;
   doc.save(fileName);
 }
+
 
