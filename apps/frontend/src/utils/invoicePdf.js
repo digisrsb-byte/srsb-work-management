@@ -227,9 +227,9 @@ export function invoiceHtml(invoice) {
       .bank{padding:3mm;border-right:1px solid #000}
       .bank h3{margin:0 0 2mm;text-decoration:underline;font-size:11px}
       .bank p{display:grid;grid-template-columns:30mm 3mm 1fr;margin:1.5mm 0}
-      .signature{display:flex;flex-direction:column;align-items:center;justify-content:space-between;text-align:center}
+      .signature{display:flex;align-items:center;justify-content:center;text-align:center;overflow:hidden}
       .signature h3{width:100%;margin:0;padding:2mm;border-bottom:1px solid #000;font-size:11px}
-      .signature img{max-width:58mm;max-height:25mm;object-fit:contain;margin:2mm auto 0}
+      .signature img{width:72mm;max-width:96%;max-height:35mm;object-fit:contain;margin:auto}
       .signature-label{width:100%;padding:2mm;border-top:1px solid #000;font-weight:700}
       @media print{body{print-color-adjust:exact;-webkit-print-color-adjust:exact}.invoice-page{margin:0}}
     </style>
@@ -279,9 +279,7 @@ export function invoiceHtml(invoice) {
           <p><b>Bank Name</b><span>:</span><span>${SRSB_INVOICE_PROFILE.bankName}</span></p>
         </div>
         <div class="signature">
-          <h3>For, ${SRSB_INVOICE_PROFILE.legalName}</h3>
-          ${signature ? `<img src="${escapeHtml(signature)}" alt="Authorised signature" />` : ''}
-          <div class="signature-label">${SRSB_INVOICE_PROFILE.signatoryLabel}</div>
+          ${signature ? `<img src="${escapeHtml(signature)}" alt="SRSB authorised seal and signature" />` : ''}
         </div>
       </div>
     </div>
@@ -453,11 +451,7 @@ export async function downloadInvoicePdf(invoice) {
   drawTextPair(doc, 'IFSC Code', SRSB_INVOICE_PROFILE.bankIfsc, left + 1, y + 23, 28);
   drawTextPair(doc, 'Branch', SRSB_INVOICE_PROFILE.bankBranch, left + 1, y + 29, 28);
   drawTextPair(doc, 'Bank Name', SRSB_INVOICE_PROFILE.bankName, left + 1, y + 35, 28);
-  doc.setFont('times', 'bold');
-  doc.text(`For, ${SRSB_INVOICE_PROFILE.legalName}`, left + 152, y + 6, { align: 'center' });
-  if (signatureData) doc.addImage(signatureData, 'PNG', left + 120, y + 8, 66, 22);
-  doc.line(left + 114, y + 32, left + width, y + 32);
-  doc.text(SRSB_INVOICE_PROFILE.signatoryLabel, left + 152, y + 36.5, { align: 'center' });
+  if (signatureData) doc.addImage(signatureData, 'PNG', left + 116, y + 2, 72, 33.4);
 
   const fileName = `${invoice.invoice_number || 'SRSB-Invoice'}-${String(invoice.company_name || 'Client').replace(/[^a-z0-9]+/gi, '-')}.pdf`;
   doc.save(fileName);

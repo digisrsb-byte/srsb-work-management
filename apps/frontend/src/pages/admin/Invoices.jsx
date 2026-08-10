@@ -392,7 +392,11 @@ export default function Invoices() {
   }
 
   async function remove(invoice) {
-    if (!window.confirm(`Delete invoice ${invoice.invoice_number}?`)) return;
+    const receivedPayment = Number(invoice.paid_amount || 0) > 0;
+    const warning = receivedPayment
+      ? `Delete invoice ${invoice.invoice_number}?\n\nThis invoice has received payment. Deleting it will also permanently delete its payment history.`
+      : `Delete invoice ${invoice.invoice_number}?`;
+    if (!window.confirm(warning)) return;
     try {
       const response = await api.delete(`/invoices/${invoice.id}`);
       setMessage(response.data.message);
@@ -652,7 +656,7 @@ export default function Invoices() {
                       <button className="icon-btn" title="Preview" onClick={() => previewInvoice(invoice)}><Eye size={16} /></button>
                       <button className="icon-btn" title="Download PDF" onClick={() => download(invoice)}><Download size={16} /></button>
                       <button className="icon-btn" title="Print" onClick={() => print(invoice)}><Printer size={16} /></button>
-                      {!['PAID', 'CANCELLED'].includes(invoice.status) && (
+                      {invoice.status !== 'CANCELLED' && (
                         <button className="icon-btn" title="Edit" onClick={() => openEdit(invoice)}><Pencil size={16} /></button>
                       )}
                       {Number(invoice.pending_amount) > 0 && invoice.status !== 'CANCELLED' && (
@@ -661,7 +665,7 @@ export default function Invoices() {
                           setPaymentForm({ ...emptyPayment, amount: invoice.pending_amount });
                         }}>Payment</button>
                       )}
-                      {Number(invoice.paid_amount || 0) === 0 && invoice.status !== 'CANCELLED' && (
+                      {invoice.status !== 'CANCELLED' && (
                         <button className="icon-btn danger" title="Delete" onClick={() => remove(invoice)}><Trash2 size={16} /></button>
                       )}
                       {Number(invoice.paid_amount || 0) === 0 && invoice.status !== 'CANCELLED' && (

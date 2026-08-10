@@ -472,9 +472,6 @@ export const deleteInvoice = asyncHandler(async (req, res) => {
   const id = idFrom(req.params.id);
   const [[invoice]] = await pool.query('SELECT paid_amount FROM invoices WHERE id = ?', [id]);
   if (!invoice) throw new AppError('Invoice not found.', 404);
-  if (Number(invoice.paid_amount || 0) > 0) {
-    throw new AppError('An invoice with payments cannot be deleted. Cancel it instead.', 409);
-  }
   await pool.query('DELETE FROM invoices WHERE id = ?', [id]);
   res.json({ success: true, message: 'Invoice deleted successfully.' });
 });
