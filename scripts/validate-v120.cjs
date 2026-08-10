@@ -23,8 +23,8 @@ function requireText(relative, values) {
 const packages = ['package.json','apps/backend/package.json','apps/frontend/package.json','apps/desktop/package.json'];
 for (const relative of packages) {
   const data = JSON.parse(read(relative));
-  if (data.version !== '1.2.1') fail(`${relative} version is ${data.version}, expected 1.2.1`);
-  else pass(`${relative} version 1.2.1`);
+  if (data.version !== '1.2.2') fail(`${relative} version is ${data.version}, expected 1.2.2`);
+  else pass(`${relative} version 1.2.2`);
 }
 
 requireText('apps/backend/src/server.js', ['ensureV120Schema', 'await ensureV120Schema()']);
@@ -71,7 +71,7 @@ requireText('apps/backend/src/routes/taskRoutes.js', [
   "router.delete('/:id', allowRoles('SUPER_ADMIN','ADMIN'), deleteTask)"
 ]);
 requireText('apps/backend/src/utils/attendanceScheduler.js', [
-  "UPPER(DAYNAME(CURDATE())) <> 'SATURDAY'",
+  "UPPER(DAYNAME(${INDIA_DATE_SQL})) <> 'SATURDAY'",
   "COALESCE(e.weekly_off_day, 'SUNDAY')"
 ]);
 requireText('apps/backend/src/controllers/taskController.js', [
@@ -162,10 +162,15 @@ if (!fs.existsSync(signatureFile) || fs.statSync(signatureFile).size < 1000) {
   pass('Authorised signature image is bundled.');
 }
 
+requireText('apps/backend/src/utils/indiaTime.js', ['INDIA_DATE_SQL', 'FULL_DAY_MINUTES = 480', 'deriveAttendanceStatus']);
+requireText('apps/backend/src/config/database.js', ["dateStrings: ['DATE', 'DATETIME']"]);
+requireText('apps/backend/src/controllers/candidateController.js', ['Complete placement details before marking this candidate as JOINED.', "h.employment_status IN ('JOINED','ACTIVE')"]);
+requireText('apps/frontend/src/pages/admin/Candidates.jsx', ['Complete Placement', 'Billing CTC *']);
+
 const backendValidation = spawnSync(process.execPath, [path.join(root, 'scripts', 'validate-backend.cjs')], { encoding: 'utf8' });
 process.stdout.write(backendValidation.stdout || '');
 process.stderr.write(backendValidation.stderr || '');
 if (backendValidation.status !== 0) fail('Backend JavaScript validation'); else pass('Backend JavaScript validation');
 
 if (failed) process.exit(1);
-console.log('\nSRSB Work Management 1.2.1 source validation: PASS');
+console.log('\nSRSB Work Management 1.2.2 source validation: PASS');

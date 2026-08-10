@@ -13,6 +13,7 @@ import {
   X
 } from 'lucide-react';
 import api from '../../services/api.js';
+import { indiaDateValue } from '../../utils/indiaTime.js';
 import useDebouncedValue from '../../hooks/useDebouncedValue.js';
 import {
   downloadInvoicePdf,
@@ -24,7 +25,7 @@ import {
 const emptyForm = {
   clientId: '',
   invoiceNumber: '',
-  invoiceDate: new Date().toISOString().slice(0, 10),
+  invoiceDate: indiaDateValue(),
   gstType: 'IGST',
   cgstRate: '9',
   sgstRate: '9',
@@ -35,7 +36,7 @@ const emptyForm = {
 
 const emptyPayment = {
   amount: '',
-  paymentDate: new Date().toISOString().slice(0, 10),
+  paymentDate: indiaDateValue(),
   paymentMethod: 'Bank Transfer',
   referenceNumber: ''
 };
@@ -172,7 +173,7 @@ export default function Invoices() {
     setForm({
       ...emptyForm,
       invoiceNumber: reference.nextInvoiceNumber || '',
-      invoiceDate: new Date().toISOString().slice(0, 10)
+      invoiceDate: indiaDateValue()
     });
     setShowForm(true);
     setMessage('');

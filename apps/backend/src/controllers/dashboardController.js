@@ -1,8 +1,6 @@
 import { pool } from '../config/database.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
-
-const INDIA_NOW_SQL = 'DATE_ADD(UTC_TIMESTAMP(), INTERVAL 330 MINUTE)';
-const INDIA_DATE_SQL = 'DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 330 MINUTE))';
+import { INDIA_DATE_SQL, INDIA_NOW_SQL } from '../utils/indiaTime.js';
 
 async function loadGreetingContext(employeeId, departmentId = null) {
   const [holidays] = await pool.query(
@@ -10,7 +8,7 @@ async function loadGreetingContext(employeeId, departmentId = null) {
        h.greeting_message, h.greeting_start_date, h.greeting_end_date
      FROM holidays h
      WHERE h.show_greeting = TRUE
-       AND CURDATE() BETWEEN COALESCE(h.greeting_start_date, h.holiday_date)
+       AND ${INDIA_DATE_SQL} BETWEEN COALESCE(h.greeting_start_date, h.holiday_date)
                          AND COALESCE(h.greeting_end_date, h.holiday_date)
        AND (h.department_id IS NULL OR h.department_id = ?)
      ORDER BY h.holiday_date ASC, h.id ASC`,
@@ -22,7 +20,7 @@ async function loadGreetingContext(employeeId, departmentId = null) {
      FROM employees
      WHERE id = ?
        AND date_of_birth IS NOT NULL
-       AND DATE_FORMAT(date_of_birth, '%m-%d') = DATE_FORMAT(CURDATE(), '%m-%d')
+       AND DATE_FORMAT(date_of_birth, '%m-%d') = DATE_FORMAT(${INDIA_DATE_SQL}, '%m-%d')
      LIMIT 1`,
     [employeeId]
   );
@@ -51,7 +49,7 @@ export const adminDashboard = asyncHandler(async (req, res) => {
     `SELECT COUNT(*) total,
        SUM(status = 'COMPLETED') completed,
        SUM(status IN ('PENDING','IN_PROGRESS','BLOCKED')) pending,
-       SUM(status <> 'COMPLETED' AND due_date IS NOT NULL AND due_date < NOW()) overdue
+       SUM(status <> 'COMPLETED' AND due_date IS NOT NULL AND due_date < ${INDIA_NOW_SQL}) overdue
      FROM tasks`
   );
   const [pipeline] = await pool.query(
@@ -67,14 +65,14 @@ export const adminDashboard = asyncHandler(async (req, res) => {
      WHERE e.status = 'ACTIVE'
        AND COALESCE(e.account_type, 'EMPLOYEE') = 'EMPLOYEE'
        AND e.date_of_birth IS NOT NULL
-       AND DATE_FORMAT(e.date_of_birth, '%m-%d') = DATE_FORMAT(CURDATE(), '%m-%d')
+       AND DATE_FORMAT(e.date_of_birth, '%m-%d') = DATE_FORMAT(${INDIA_DATE_SQL}, '%m-%d')
      ORDER BY e.full_name`
   );
   const [candidateBirthdays] = await pool.query(
     `SELECT c.id, c.full_name, c.phone, c.email
      FROM candidates c
      WHERE c.date_of_birth IS NOT NULL
-       AND DATE_FORMAT(c.date_of_birth, '%m-%d') = DATE_FORMAT(CURDATE(), '%m-%d')
+       AND DATE_FORMAT(c.date_of_birth, '%m-%d') = DATE_FORMAT(${INDIA_DATE_SQL}, '%m-%d')
      ORDER BY c.full_name`
   );
   const [holidayGreetings] = await pool.query(
@@ -83,7 +81,7 @@ export const adminDashboard = asyncHandler(async (req, res) => {
      FROM holidays h
      LEFT JOIN departments d ON d.id = h.department_id
      WHERE h.show_greeting = TRUE
-       AND CURDATE() BETWEEN COALESCE(h.greeting_start_date, h.holiday_date)
+       AND ${INDIA_DATE_SQL} BETWEEN COALESCE(h.greeting_start_date, h.holiday_date)
                          AND COALESCE(h.greeting_end_date, h.holiday_date)
      ORDER BY h.holiday_date ASC`
   );
@@ -134,7 +132,8 @@ export const employeeDashboard = asyncHandler(async (req, res) => {
   );
 
   const [[attendance]] = await pool.query(
-    `SELECT punch_in, punch_out, status,
+    `SELECT punch_in, punch_out,
+       CASE WHEN punch_in IS NOT NULL AND punch_out IS NULL THEN 'PRESENT' ELSE status END AS status,
        CASE
          WHEN punch_in IS NOT NULL AND punch_out IS NULL
          THEN GREATEST(TIMESTAMPDIFF(MINUTE, punch_in, ${INDIA_NOW_SQL}), 0)
@@ -155,7 +154,7 @@ export const employeeDashboard = asyncHandler(async (req, res) => {
            ELSE GREATEST(COALESCE(total_work_minutes, 0), 0)
          END
        ), 0) minutes,
-       SUM(punch_in IS NOT NULL AND status = 'PRESENT') presentDays,
+       SUM(punch_in IS NOT NULL AND (status = 'PRESENT' OR (punch_out IS NULL AND attendance_date = ${INDIA_DATE_SQL}))) presentDays,
        SUM(punch_in IS NOT NULL AND status = 'HALF_DAY') halfDays,
        SUM(punch_in IS NULL AND status = 'ABSENT') absentDays,
        SUM(status IN ('LEAVE', 'HALF_DAY') AND punch_in IS NULL) leaveDays,
@@ -194,7 +193,7 @@ export const employeeDashboard = asyncHandler(async (req, res) => {
     `SELECT COUNT(*) total,
        SUM(status = 'COMPLETED') completed,
        SUM(status IN ('PENDING','IN_PROGRESS','BLOCKED')) pending,
-       SUM(status <> 'COMPLETED' AND due_date IS NOT NULL AND due_date < NOW()) overdue
+       SUM(status <> 'COMPLETED' AND due_date IS NOT NULL AND due_date < ${INDIA_NOW_SQL}) overdue
      FROM tasks
      WHERE assigned_to = ?`,
     [employeeDbId]
@@ -209,7 +208,12 @@ export const employeeDashboard = asyncHandler(async (req, res) => {
 
   const [recentAttendance] = await pool.query(
     `SELECT DATE_FORMAT(attendance_date, '%Y-%m-%d') AS attendance_date,
-       punch_in, punch_out, status, total_work_minutes
+       punch_in, punch_out,
+       CASE WHEN punch_in IS NOT NULL AND punch_out IS NULL AND attendance_date = ${INDIA_DATE_SQL}
+         THEN 'PRESENT' ELSE status END AS status,
+       CASE WHEN punch_in IS NOT NULL AND punch_out IS NULL AND attendance_date = ${INDIA_DATE_SQL}
+         THEN GREATEST(TIMESTAMPDIFF(MINUTE, punch_in, ${INDIA_NOW_SQL}), 0)
+         ELSE GREATEST(COALESCE(total_work_minutes, 0), 0) END AS total_work_minutes
      FROM attendance
      WHERE employee_id = ?
      ORDER BY attendance_date DESC

@@ -1,6 +1,7 @@
-﻿import { pool } from '../config/database.js';
+import { pool } from '../config/database.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
+import { indiaDateNow } from '../utils/indiaTime.js';
 
 const allowedStages = ['SOURCED','SCREENING','SHORTLISTED','INTERVIEW','OFFERED','JOINED','REJECTED','WITHDRAWN'];
 const allowedEmploymentStatuses = ['OFFERED','JOINED','ACTIVE','LEFT','NO_SHOW','TERMINATED'];
@@ -91,7 +92,7 @@ export const getCandidateReferenceData = asyncHandler(async (req, res) => {
 });
 
 export const listCandidatePlacements = asyncHandler(async (req, res) => {
-  const conditions = ["h.employment_status IN ('OFFERED','JOINED','ACTIVE')"];
+  const conditions = ["h.employment_status IN ('JOINED','ACTIVE')", 'h.joining_date IS NOT NULL', 'COALESCE(NULLIF(h.offered_ctc, 0), h.ctc, 0) > 0'];
   const values = [];
   if (req.query.clientId) {
     conditions.push('h.client_id = ?');
@@ -169,6 +170,10 @@ export const listCandidates = asyncHandler(async (req, res) => {
        creator.full_name AS enrolled_by_name,
        application.id AS application_id, application.stage, application.assigned_recruiter_id,
        application.sourced_date, application.sourcing_notes, application.last_updated,
+       (SELECT h3.id FROM candidate_employment_history h3
+        WHERE h3.application_id = application.id
+          AND h3.employment_status IN ('JOINED','ACTIVE')
+        ORDER BY h3.id DESC LIMIT 1) AS application_placement_id,
        opening.id AS opening_id, opening.title AS job_role, opening.location AS requirement_location,
        opening.status AS opening_status, client.id AS client_id, client.company_name,
        recruiter.full_name AS assigned_recruiter_name,
@@ -263,7 +268,7 @@ async function createApplication(connection, candidateId, body, actorId) {
        candidate_id, opening_id, stage, assigned_recruiter_id, sourced_date, sourcing_notes
      ) VALUES (?, ?, ?, ?, ?, ?)`,
     [candidateId, openingId, finalStage, recruiterId,
-      isoDateOrNull(body.sourcedDate, 'sourced date') || new Date().toISOString().slice(0, 10),
+      isoDateOrNull(body.sourcedDate, 'sourced date') || indiaDateNow(),
       String(body.sourcingNotes || '').trim() || null]
   );
   return result.insertId;
@@ -295,7 +300,7 @@ export const createCandidate = asyncHandler(async (req, res) => {
            current_ctc, expected_ctc, notice_period_days, skills, created_by
          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [data.fullName, data.email, data.phone, data.dateOfBirth, data.source,
-          data.sourceDetails, data.enrollmentDate || new Date().toISOString().slice(0, 10),
+          data.sourceDetails, data.enrollmentDate || indiaDateNow(),
           data.currentLocation, data.preferredLocation, data.totalExperience,
           data.currentCtc, data.expectedCtc, data.noticePeriodDays, data.skills, req.user.id]
       );
@@ -437,6 +442,18 @@ export const updateCandidateStage = asyncHandler(async (req, res) => {
     throw new AppError('Candidate stage cannot be changed after the requirement is closed.', 409);
   }
 
+  if (stage === 'JOINED') {
+    const [[placement]] = await pool.query(
+      `SELECT id FROM candidate_employment_history
+       WHERE application_id = ? AND employment_status IN ('JOINED','ACTIVE')
+       LIMIT 1`,
+      [applicationId]
+    );
+    if (!placement) {
+      throw new AppError('Complete placement details before marking this candidate as JOINED.', 409);
+    }
+  }
+
   await pool.query(
     `UPDATE candidate_applications SET stage = ?, assigned_recruiter_id = ?, last_updated = CURRENT_TIMESTAMP WHERE id = ?`,
     [stage, optionalId(req.body.assignedRecruiterId, 'recruiter') || req.user.id, applicationId]
@@ -497,7 +514,7 @@ async function validateHistoryPayload(connection, candidateId, body) {
 
   if (applicationId) {
     const [[application]] = await connection.query(
-      `SELECT ca.id, ca.candidate_id, ca.opening_id, jo.client_id, c.company_name
+      `SELECT ca.id, ca.candidate_id, ca.opening_id, ca.assigned_recruiter_id, jo.client_id, jo.title AS job_role, jo.location AS job_location, c.company_name
        FROM candidate_applications ca
        JOIN job_openings jo ON jo.id = ca.opening_id
        JOIN clients c ON c.id = jo.client_id
@@ -523,6 +540,13 @@ async function validateHistoryPayload(connection, candidateId, body) {
   if (!allowedEmploymentStatuses.includes(status)) throw new AppError('Invalid employment status.', 400);
   const joiningDate = isoDateOrNull(body.joiningDate, 'joining date');
   const leavingDate = isoDateOrNull(body.leavingDate, 'leaving date');
+  const offeredCtc = asNumber(body.offeredCtc) || asNumber(body.ctc) || 0;
+  if (['JOINED','ACTIVE'].includes(status) && !joiningDate) {
+    throw new AppError('Joining date is required for a joined candidate.', 400);
+  }
+  if (['JOINED','ACTIVE'].includes(status) && offeredCtc <= 0) {
+    throw new AppError('Billing CTC is required for a joined candidate.', 400);
+  }
   if (joiningDate && leavingDate && leavingDate < joiningDate) {
     throw new AppError('Leaving date cannot be earlier than joining date.', 400);
   }
@@ -535,7 +559,7 @@ async function validateHistoryPayload(connection, candidateId, body) {
     position,
     location: String(body.location || '').trim() || null,
     ctc: asNumber(body.ctc) || 0,
-    offeredCtc: asNumber(body.offeredCtc) || asNumber(body.ctc) || 0,
+    offeredCtc,
     grossSalary: asNumber(body.grossSalary) || 0,
     offerDate: isoDateOrNull(body.offerDate, 'offer date'),
     joiningDate,
@@ -557,6 +581,15 @@ export const createCandidateHistory = asyncHandler(async (req, res) => {
     const [[candidate]] = await connection.query('SELECT id FROM candidates WHERE id = ?', [candidateId]);
     if (!candidate) throw new AppError('Candidate not found.', 404);
     const data = await validateHistoryPayload(connection, candidateId, req.body);
+    if (data.applicationId) {
+      const [[existingPlacement]] = await connection.query(
+        'SELECT id FROM candidate_employment_history WHERE application_id = ? LIMIT 1',
+        [data.applicationId]
+      );
+      if (existingPlacement) {
+        throw new AppError('A placement is already recorded for this sourcing record. Edit the existing placement instead.', 409);
+      }
+    }
     const [result] = await connection.query(
       `INSERT INTO candidate_employment_history (
          candidate_id, client_id, application_id, opening_id, company_name_snapshot,

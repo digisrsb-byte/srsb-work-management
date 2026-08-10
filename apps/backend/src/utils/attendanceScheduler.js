@@ -1,5 +1,6 @@
 import cron from 'node-cron';
 import { pool } from '../config/database.js';
+import { INDIA_DATE_SQL } from './indiaTime.js';
 
 const timezone = 'Asia/Kolkata';
 
@@ -25,16 +26,16 @@ async function sendPunchInReminders() {
      FROM employees e
      LEFT JOIN attendance a
        ON a.employee_id = e.id
-      AND a.attendance_date = CURDATE()
+      AND a.attendance_date = ${INDIA_DATE_SQL}
      WHERE e.status = 'ACTIVE'
        AND e.role <> 'SUPER_ADMIN'
        AND a.punch_in IS NULL
-       AND UPPER(DAYNAME(CURDATE())) <> 'SATURDAY'
-       AND UPPER(DAYNAME(CURDATE())) <> COALESCE(e.weekly_off_day, 'SUNDAY')
+       AND UPPER(DAYNAME(${INDIA_DATE_SQL})) <> 'SATURDAY'
+       AND UPPER(DAYNAME(${INDIA_DATE_SQL})) <> COALESCE(e.weekly_off_day, 'SUNDAY')
        AND NOT EXISTS (
          SELECT 1
          FROM holidays h
-         WHERE h.holiday_date = CURDATE()
+         WHERE h.holiday_date = ${INDIA_DATE_SQL}
            AND (h.department_id IS NULL OR h.department_id = e.department_id)
        )
        AND NOT EXISTS (
@@ -57,7 +58,7 @@ async function sendPunchInReminders() {
          FROM notifications n
          WHERE n.recipient_id = e.id
            AND n.type = 'PUNCH_IN_REMINDER'
-           AND DATE(n.created_at) = CURDATE()
+           AND DATE(DATE_ADD(n.created_at, INTERVAL 330 MINUTE)) = ${INDIA_DATE_SQL}
        )`
   );
 }
@@ -84,7 +85,7 @@ async function sendLunchBreakNotifications() {
      FROM employees e
      JOIN attendance a
        ON a.employee_id = e.id
-      AND a.attendance_date = CURDATE()
+      AND a.attendance_date = ${INDIA_DATE_SQL}
      WHERE e.status = 'ACTIVE'
        AND e.role <> 'SUPER_ADMIN'
        AND a.punch_in IS NOT NULL
@@ -94,7 +95,7 @@ async function sendLunchBreakNotifications() {
          FROM notifications n
          WHERE n.recipient_id = e.id
            AND n.type = 'LUNCH_BREAK'
-           AND DATE(n.created_at) = CURDATE()
+           AND DATE(DATE_ADD(n.created_at, INTERVAL 330 MINUTE)) = ${INDIA_DATE_SQL}
        )`
   );
 }
@@ -121,7 +122,7 @@ async function sendPunchOutReminders() {
      FROM employees e
      JOIN attendance a
        ON a.employee_id = e.id
-      AND a.attendance_date = CURDATE()
+      AND a.attendance_date = ${INDIA_DATE_SQL}
      WHERE e.status = 'ACTIVE'
        AND e.role <> 'SUPER_ADMIN'
        AND a.punch_in IS NOT NULL
@@ -131,7 +132,7 @@ async function sendPunchOutReminders() {
          FROM notifications n
          WHERE n.recipient_id = e.id
            AND n.type = 'PUNCH_OUT_REMINDER'
-           AND DATE(n.created_at) = CURDATE()
+           AND DATE(DATE_ADD(n.created_at, INTERVAL 330 MINUTE)) = ${INDIA_DATE_SQL}
        )`
   );
 }
@@ -173,8 +174,8 @@ async function sendWeeklyAttendanceSummaries() {
      LEFT JOIN attendance a
        ON a.employee_id = e.id
       AND a.attendance_date BETWEEN
-          DATE_SUB(CURDATE(), INTERVAL 5 DAY)
-          AND CURDATE()
+          DATE_SUB(${INDIA_DATE_SQL}, INTERVAL 5 DAY)
+          AND ${INDIA_DATE_SQL}
      WHERE e.status = 'ACTIVE'
        AND e.role <> 'SUPER_ADMIN'
        AND NOT EXISTS (
@@ -182,7 +183,7 @@ async function sendWeeklyAttendanceSummaries() {
          FROM notifications n
          WHERE n.recipient_id = e.id
            AND n.type = 'WEEKLY_ATTENDANCE_SUMMARY'
-           AND DATE(n.created_at) = CURDATE()
+           AND DATE(DATE_ADD(n.created_at, INTERVAL 330 MINUTE)) = ${INDIA_DATE_SQL}
        )
      GROUP BY e.id`
   );
@@ -191,7 +192,7 @@ async function sendWeeklyAttendanceSummaries() {
 async function sendMonthlyAttendanceSummaries() {
   const [[dateCheck]] = await pool.query(
     `SELECT
-       DAY(DATE_ADD(CURDATE(), INTERVAL 1 DAY)) AS tomorrow_day`
+       DAY(DATE_ADD(${INDIA_DATE_SQL}, INTERVAL 1 DAY)) AS tomorrow_day`
   );
 
   if (Number(dateCheck.tomorrow_day) !== 1) {
@@ -233,8 +234,8 @@ async function sendMonthlyAttendanceSummaries() {
      FROM employees e
      LEFT JOIN attendance a
        ON a.employee_id = e.id
-      AND YEAR(a.attendance_date) = YEAR(CURDATE())
-      AND MONTH(a.attendance_date) = MONTH(CURDATE())
+      AND YEAR(a.attendance_date) = YEAR(${INDIA_DATE_SQL})
+      AND MONTH(a.attendance_date) = MONTH(${INDIA_DATE_SQL})
      WHERE e.status = 'ACTIVE'
        AND e.role <> 'SUPER_ADMIN'
        AND NOT EXISTS (
@@ -242,8 +243,8 @@ async function sendMonthlyAttendanceSummaries() {
          FROM notifications n
          WHERE n.recipient_id = e.id
            AND n.type = 'MONTHLY_ATTENDANCE_SUMMARY'
-           AND YEAR(n.created_at) = YEAR(CURDATE())
-           AND MONTH(n.created_at) = MONTH(CURDATE())
+           AND YEAR(DATE_ADD(n.created_at, INTERVAL 330 MINUTE)) = YEAR(${INDIA_DATE_SQL})
+           AND MONTH(DATE_ADD(n.created_at, INTERVAL 330 MINUTE)) = MONTH(${INDIA_DATE_SQL})
        )
      GROUP BY e.id`
   );
@@ -266,8 +267,8 @@ async function sendBirthdayNotifications() {
      FROM employees
      WHERE status = 'ACTIVE'
        AND date_of_birth IS NOT NULL
-       AND DAY(date_of_birth) = DAY(CURDATE())
-       AND MONTH(date_of_birth) = MONTH(CURDATE())`
+       AND DAY(date_of_birth) = DAY(${INDIA_DATE_SQL})
+       AND MONTH(date_of_birth) = MONTH(${INDIA_DATE_SQL})`
   );
 
   for (const employee of birthdayEmployees) {
@@ -297,7 +298,7 @@ async function sendBirthdayNotifications() {
            WHERE n.recipient_id = e.id
              AND n.type = 'BIRTHDAY'
              AND n.reference_id = ?
-             AND DATE(n.created_at) = CURDATE()
+             AND DATE(DATE_ADD(n.created_at, INTERVAL 330 MINUTE)) = ${INDIA_DATE_SQL}
          )`,
       [
         `Today is ${employee.full_name}'s birthday. Wish them a happy birthday!`,

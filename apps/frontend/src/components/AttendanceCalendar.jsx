@@ -1,6 +1,6 @@
 import MonthlyCalendar, { shiftMonth } from './MonthlyCalendar.jsx';
+import { indiaMonthValue, wallClockTime } from '../utils/indiaTime.js';
 
-function indiaMonthValue() { return new Date(Date.now() + 330 * 60 * 1000).toISOString().slice(0, 7); }
 
 const labels = {
   PRESENT: 'Present',
@@ -16,15 +16,6 @@ const labels = {
 
 const statusClass = (status) =>
   `attendance-${String(status || 'future').toLowerCase()}`;
-
-function wallClockTime(value) {
-  if (!value) return '—';
-  const match = String(value).trim().match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
-  if (!match) return String(value);
-  const hour = Number(match[4]);
-  const displayHour = hour % 12 || 12;
-  return `${String(displayHour).padStart(2, '0')}:${match[5]} ${hour >= 12 ? 'PM' : 'AM'}`;
-}
 
 const time = wallClockTime;
 

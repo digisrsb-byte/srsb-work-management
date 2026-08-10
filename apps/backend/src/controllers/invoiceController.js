@@ -79,7 +79,7 @@ async function validateItems(connection, clientId, rawItems) {
     if (item.placementHistoryId) {
       const [[placement]] = await connection.query(
         `SELECT h.id, h.candidate_id, h.client_id, h.position, h.location, h.joining_date,
-           h.offered_ctc, h.ctc, h.gross_salary, c.full_name AS candidate_name
+           h.offered_ctc, h.ctc, h.gross_salary, h.employment_status, c.full_name AS candidate_name
          FROM candidate_employment_history h
          JOIN candidates c ON c.id = h.candidate_id
          WHERE h.id = ?`,
@@ -88,6 +88,12 @@ async function validateItems(connection, clientId, rawItems) {
       if (!placement) throw new AppError('A selected candidate placement no longer exists.', 404);
       if (Number(placement.client_id) !== Number(clientId)) {
         throw new AppError('Every selected candidate must be placed with the selected client.', 400);
+      }
+      if (!['JOINED','ACTIVE'].includes(placement.employment_status)) {
+        throw new AppError('Only joined or active placements can be invoiced.', 409);
+      }
+      if (!placement.joining_date) {
+        throw new AppError('The selected placement is missing its joining date.', 409);
       }
       item.candidateId = placement.candidate_id;
       item.candidateName = placement.candidate_name;

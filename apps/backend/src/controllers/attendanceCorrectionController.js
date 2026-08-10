@@ -1,6 +1,11 @@
 import { pool } from '../config/database.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
+import {
+  deriveAttendanceStatus,
+  indiaDateNow,
+  wallClockMinutes
+} from '../utils/indiaTime.js';
 
 const issueTypes = [
   'FORGOT_PUNCH_IN',
@@ -20,32 +25,6 @@ function validId(value, label = 'ID') {
 function toSqlDateTime(date, time) {
   if (!date || !time) return null;
   return `${date} ${time.length === 5 ? `${time}:00` : time}`;
-}
-
-function indiaDateNow() {
-  return new Date(Date.now() + 330 * 60 * 1000).toISOString().slice(0, 10);
-}
-
-function wallClockMinutes(start, end) {
-  if (!start || !end) return 0;
-  const parse = (value) => {
-    const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
-    if (!match) return NaN;
-    return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]), Number(match[6] || 0));
-  };
-  const startMs = parse(start);
-  const endMs = parse(end);
-  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return NaN;
-  return Math.round((endMs - startMs) / 60000);
-}
-
-function deriveAttendanceStatus(punchIn, punchOut, forcedStatus = null) {
-  if (forcedStatus) return forcedStatus;
-  if (!punchIn || !punchOut) return 'MISSING_PUNCH';
-  const minutes = Math.max(wallClockMinutes(punchIn, punchOut), 0);
-  if (minutes >= 450) return 'PRESENT';
-  if (minutes >= 240) return 'HALF_DAY';
-  return 'ABSENT';
 }
 
 async function notifyAdmins({ actorId, title, message, referenceId }) {
@@ -92,6 +71,19 @@ export const createCorrectionRequest = asyncHandler(async (req, res) => {
 
   const requestedPunchIn = toSqlDateTime(correctionDate, req.body.requestedPunchIn);
   const requestedPunchOut = toSqlDateTime(correctionDate, req.body.requestedPunchOut);
+
+  if (issueType === 'FORGOT_PUNCH_IN' && !requestedPunchIn) {
+    throw new AppError('Enter the requested punch-in time.', 400);
+  }
+  if (issueType === 'FORGOT_PUNCH_OUT' && !requestedPunchOut) {
+    throw new AppError('Enter the requested punch-out time.', 400);
+  }
+  if (['FORGOT_BOTH', 'ATTENDANCE_MISSING'].includes(issueType) && (!requestedPunchIn || !requestedPunchOut)) {
+    throw new AppError('Enter both requested punch-in and punch-out times.', 400);
+  }
+  if (['INCORRECT_TIME', 'OTHER'].includes(issueType) && !requestedPunchIn && !requestedPunchOut) {
+    throw new AppError('Enter at least one corrected punch time.', 400);
+  }
   if (requestedPunchIn && requestedPunchOut && wallClockMinutes(requestedPunchIn, requestedPunchOut) <= 0) {
     throw new AppError('Punch-out time must be later than punch-in time.', 400);
   }
@@ -237,7 +229,7 @@ export const reviewCorrectionRequest = asyncHandler(async (req, res) => {
       const totalMinutes = punchIn && punchOut
         ? Math.max(wallClockMinutes(punchIn, punchOut), 0)
         : 0;
-      const status = deriveAttendanceStatus(punchIn, punchOut);
+      const status = deriveAttendanceStatus({ punchIn, punchOut, attendanceDate: correctionDate });
 
       await connection.query(
         `INSERT INTO attendance (
@@ -312,7 +304,7 @@ export const adminUpsertAttendance = asyncHandler(async (req, res) => {
   const allowedStatuses = ['PRESENT','HALF_DAY','ABSENT','LEAVE','WEEK_OFF','HOLIDAY','MISSING_PUNCH'];
   if (forcedStatus && !allowedStatuses.includes(forcedStatus)) throw new AppError('Invalid attendance status.', 400);
   const totalMinutes = punchIn && punchOut ? Math.max(wallClockMinutes(punchIn, punchOut), 0) : 0;
-  const status = deriveAttendanceStatus(punchIn, punchOut, forcedStatus);
+  const status = deriveAttendanceStatus({ punchIn, punchOut, attendanceDate: date, forcedStatus });
 
   await pool.query(
     `INSERT INTO attendance (employee_id, attendance_date, punch_in, punch_out, total_work_minutes, status, remarks)

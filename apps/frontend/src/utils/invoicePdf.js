@@ -1,4 +1,4 @@
-import { jsPDF } from 'jspdf';
+﻿import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 export const SRSB_INVOICE_PROFILE = Object.freeze({
@@ -29,7 +29,7 @@ const date = (value) => value
       month: '2-digit',
       year: 'numeric'
     })
-  : '—';
+  : 'â€”';
 
 const ones = ['', 'One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
 const tens = ['', '', 'Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
@@ -173,12 +173,11 @@ function candidateHtml(item, index, count) {
   return `
     <div class="candidate-block">
       ${count > 1 ? `<div class="candidate-count">Candidate ${index + 1}</div>` : ''}
-      <div><b>Name of Candidate :</b><span>${escapeHtml(item.candidate_name_snapshot || item.candidateName || '—')}</span></div>
-      <div><b>Location &amp; Grade :</b><span>${escapeHtml(item.location_snapshot || item.location || '—')}</span></div>
+      <div><b>Name of Candidate :</b><span>${escapeHtml(item.candidate_name_snapshot || item.candidateName || 'â€”')}</span></div>
+      <div><b>Location &amp; Grade :</b><span>${escapeHtml(item.location_snapshot || item.location || 'â€”')}</span></div>
       <div><b>Date of Joining :</b><span>${escapeHtml(date(item.joining_date || item.joiningDate))}</span></div>
-      <div><b>Designation :</b><span>${escapeHtml(item.designation_snapshot || item.designation || '—')}</span></div>
+      <div><b>Designation :</b><span>${escapeHtml(item.designation_snapshot || item.designation || 'â€”')}</span></div>
       <div><b>Billing CTC :</b><span>Rs. ${money(item.annual_ctc || item.annualCtc || 0)}/-</span></div>
-      <div><b>Duty Rate :</b><span>${escapeHtml(itemRateText(item))}</span></div>
     </div>`;
 }
 
@@ -249,10 +248,10 @@ export function invoiceHtml(invoice) {
 
       <div class="client-invoice">
         <div class="client-box">
-          <div class="to-line"><span>To,</span><div><p><b>${escapeHtml(invoice.company_name || '—')}</b></p><p>${escapeHtml(address || '—')}</p><p><b>GST No:</b> ${escapeHtml(invoice.client_gst_number || '—')}</p></div></div>
+          <div class="to-line"><span>To,</span><div><p><b>${escapeHtml(invoice.company_name || 'â€”')}</b></p><p>${escapeHtml(address || 'â€”')}</p><p><b>GST No:</b> ${escapeHtml(invoice.client_gst_number || 'â€”')}</p></div></div>
         </div>
         <div class="invoice-box">
-          <p><b>Invoice No</b><span>:</span><span>${escapeHtml(invoice.invoice_number || '—')}</span></p>
+          <p><b>Invoice No</b><span>:</span><span>${escapeHtml(invoice.invoice_number || 'â€”')}</span></p>
           <p><b>Date</b><span>:</span><span>${escapeHtml(date(invoice.invoice_date))}</span></p>
           <p><b>SAC</b><span>:</span><span>${SRSB_INVOICE_PROFILE.sacCode}</span></p>
           <p><b>State Code</b><span>:</span><span>${SRSB_INVOICE_PROFILE.stateCode}</span></p>
@@ -319,7 +318,7 @@ function drawTextPair(doc, label, value, x, y, labelWidth = 34) {
   doc.setFont('times', 'bold');
   doc.text(label, x, y);
   doc.setFont('times', 'normal');
-  doc.text(String(value || '—'), x + labelWidth, y);
+  doc.text(String(value || 'â€”'), x + labelWidth, y);
 }
 
 export async function downloadInvoicePdf(invoice) {
@@ -357,11 +356,11 @@ export async function downloadInvoicePdf(invoice) {
   doc.setFont('times', 'normal');
   doc.text('To,', left + 1, y + 7);
   doc.setFont('times', 'bold');
-  doc.text(invoice.company_name || '—', left + 14, y + 7);
+  doc.text(invoice.company_name || 'â€”', left + 14, y + 7);
   doc.setFont('times', 'normal');
-  doc.text(clientAddress(invoice) || '—', left + 14, y + 14, { maxWidth: 116 });
+  doc.text(clientAddress(invoice) || 'â€”', left + 14, y + 14, { maxWidth: 116 });
   doc.setFont('times', 'bold');
-  doc.text(`GST No: ${invoice.client_gst_number || '—'}`, left + 14, y + 29);
+  doc.text(`GST No: ${invoice.client_gst_number || 'â€”'}`, left + 14, y + 29);
   drawTextPair(doc, 'Invoice No', invoice.invoice_number, left + 138, y + 8, 21);
   drawTextPair(doc, 'Date', date(invoice.invoice_date), left + 138, y + 15, 21);
   drawTextPair(doc, 'SAC', SRSB_INVOICE_PROFILE.sacCode, left + 138, y + 22, 21);
@@ -376,13 +375,13 @@ export async function downloadInvoicePdf(invoice) {
   const items = invoice.items || [];
   for (let index = 0; index < Math.max(items.length, 1); index += 1) {
     const item = items[index] || {};
-    const blockHeight = items.length > 1 ? 35 : 31;
+    const blockHeight = items.length > 1 ? 30 : 26;
     if (y + blockHeight + 70 > pageHeight - 8) {
       doc.addPage();
       y = 10;
       doc.setFont('times', 'bold');
       doc.setFontSize(12);
-      doc.text(`${invoice.invoice_number || ''} — Candidate Details`, left, y + 5);
+      doc.text(`${invoice.invoice_number || ''} â€” Candidate Details`, left, y + 5);
       y += 10;
     }
     doc.rect(left, y, width, blockHeight);
@@ -402,8 +401,6 @@ export async function downloadInvoicePdf(invoice) {
     drawTextPair(doc, 'Designation :', item.designation_snapshot || item.designation, left + 1, line, 34);
     line += 5;
     drawTextPair(doc, 'Billing CTC :', `Rs. ${money(item.annual_ctc || item.annualCtc || 0)}/-`, left + 1, line, 34);
-    line += 5;
-    drawTextPair(doc, 'Duty Rate :', itemRateText(item), left + 1, line, 34);
     y += blockHeight;
   }
 
@@ -465,3 +462,4 @@ export async function downloadInvoicePdf(invoice) {
   const fileName = `${invoice.invoice_number || 'SRSB-Invoice'}-${String(invoice.company_name || 'Client').replace(/[^a-z0-9]+/gi, '-')}.pdf`;
   doc.save(fileName);
 }
+
