@@ -73,7 +73,7 @@ function formatDate(value) {
 
 export default function Openings() {
   const { user } = useAuth();
-  const canManageRequirement = ['SUPER_ADMIN', 'ADMIN'].includes(user?.role);
+  const canManageRequirement = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER', 'RECRUITER'].includes(user?.role);
   const addFormRef = useRef(null);
   const [openings, setOpenings] = useState([]);
   const [clients, setClients] = useState([]);
@@ -689,20 +689,22 @@ export default function Openings() {
             />
           </div>
 
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => {
-              addFormRef.current?.scrollIntoView({
-                behavior: 'smooth',
-                block: 'start'
-              });
-              addFormRef.current?.querySelector('select')?.focus();
-            }}
-          >
-            <Plus size={17} />
-            Add Requirement
-          </button>
+          {canManageRequirement && (
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => {
+                addFormRef.current?.scrollIntoView({
+                  behavior: 'smooth',
+                  block: 'start'
+                });
+                addFormRef.current?.querySelector('select')?.focus();
+              }}
+            >
+              <Plus size={17} />
+              Add Requirement
+            </button>
+          )}
 
           <button
             type="button"
@@ -1069,12 +1071,15 @@ export default function Openings() {
 
         {!filteredOpenings.length && (
           <div className="card">
-            No saved requirements found for the selected company. Use Add Requirement to create one.
+            {canManageRequirement
+              ? 'No saved requirements found for the selected company. Use Add Requirement to create one.'
+              : 'No job requirements found for the selected company.'}
           </div>
         )}
       </div>
 
 
+      {canManageRequirement && (
       <form ref={addFormRef} className="card" onSubmit={saveOpening}>
         <div className="section-heading">
           <div>
@@ -1310,6 +1315,7 @@ export default function Openings() {
           )}
         </div>
       </form>
+      )}
 
     </>
   );

@@ -1,6 +1,7 @@
 import { pool } from '../config/database.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
+import { backfillApprovedLeaveAttendance } from '../utils/leaveAttendance.js';
 
 const allowedStatuses = [
   'PRESENT',
@@ -583,6 +584,9 @@ export const attendanceCalendar = asyncHandler(async (req, res) => {
   );
   if (!employee) throw new AppError('Employee not found.', 404);
 
+  // Persist approved leave into attendance so employee calendar matches admin.
+  await backfillApprovedLeaveAttendance(pool, employeeId, range.start, range.end);
+
   const [records] = await pool.query(
     `SELECT id,
        DATE_FORMAT(attendance_date, '%Y-%m-%d') AS attendance_date,
@@ -608,6 +612,19 @@ export const attendanceCalendar = asyncHandler(async (req, res) => {
        AND (department_id IS NULL OR department_id = ?)`,
     [range.start, range.end, employee.department_id]
   );
+
+  const [approvedLeaves] = await pool.query(
+    `SELECT id, leave_type, duration_type,
+       DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date,
+       DATE_FORMAT(end_date, '%Y-%m-%d') AS end_date
+     FROM leave_requests
+     WHERE employee_id = ?
+       AND status = 'APPROVED'
+       AND start_date <= ?
+       AND end_date >= ?`,
+    [employeeId, range.end, range.start]
+  );
+
   const [[todayRow]] = await pool.query(`SELECT DATE_FORMAT(${INDIA_DATE_SQL}, "%Y-%m-%d") AS today`);
   const today = todayRow.today;
   const recordMap = new Map(
@@ -616,6 +633,18 @@ export const attendanceCalendar = asyncHandler(async (req, res) => {
   const holidayMap = new Map(
     holidays.map((holiday) => [holiday.holiday_date, holiday])
   );
+  const leaveDateMap = new Map();
+  for (const leave of approvedLeaves) {
+    const cursor = new Date(`${leave.start_date}T00:00:00Z`);
+    const last = new Date(`${leave.end_date}T00:00:00Z`);
+    while (cursor <= last) {
+      const leaveDate = cursor.toISOString().slice(0, 10);
+      if (leaveDate >= range.start && leaveDate <= range.end) {
+        leaveDateMap.set(leaveDate, leave);
+      }
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+  }
 
   const calendar = [];
   const summary = {
@@ -635,6 +664,7 @@ export const attendanceCalendar = asyncHandler(async (req, res) => {
     const weekday = dayNames[new Date(`${date}T00:00:00Z`).getUTCDay()];
     const record = recordMap.get(date);
     const holiday = holidayMap.get(date);
+    const approvedLeave = leaveDateMap.get(date);
 
     // Saturday is always a company weekly holiday. The employee's configured
     // weekly off is also respected, so existing Sunday/off-day settings remain valid.
@@ -658,7 +688,14 @@ export const attendanceCalendar = asyncHandler(async (req, res) => {
       status = 'PRESENT';
     }
 
-    if (!status && holiday) {
+    if (!status && approvedLeave) {
+      status = ['FIRST_HALF', 'SECOND_HALF'].includes(approvedLeave.duration_type)
+        ? 'HALF_DAY'
+        : 'LEAVE';
+      remarks = `Approved leave (${String(approvedLeave.leave_type || '')
+        .replaceAll('_', ' ')
+        .toLowerCase()})`;
+    } else if (!status && holiday) {
       status = 'HOLIDAY';
       remarks = holiday.holiday_name;
     } else if (!status && isWeeklyOff) {

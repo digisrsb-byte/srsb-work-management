@@ -170,11 +170,14 @@ export default function AppRoutes() {
           path="/employee/tasks"
           element={<Tasks />}
         />
-<Route
-  path="/employee/candidates"
-  element={<Candidates />}
-/>
-
+        <Route
+          path="/employee/openings"
+          element={<Openings />}
+        />
+        <Route
+          path="/employee/candidates"
+          element={<Candidates />}
+        />
         <Route
           path="/employee/profile"
           element={<MyProfile />}

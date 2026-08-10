@@ -136,7 +136,18 @@ export default function AppLayout({ mode }) {
   const navigation =
     mode === 'admin'
       ? adminGroups
-      : employeeNavigation;
+      : employeeNavigation.map((group) => ({
+          ...group,
+          items: group.items.filter((item) => {
+            if (item.path === '/employee/openings') {
+              return ['RECRUITER', 'EMPLOYEE'].includes(user?.role);
+            }
+            if (item.path === '/employee/candidates') {
+              return ['RECRUITER', 'EMPLOYEE'].includes(user?.role);
+            }
+            return true;
+          })
+        })).filter((group) => group.items.length > 0);
 
   async function loadUnreadCount() {
     try {

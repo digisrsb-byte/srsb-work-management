@@ -25,7 +25,7 @@ router.get('/calendar', attendanceCalendar);
 
 router.get(
   '/day-overview',
-  allowRoles('SUPER_ADMIN', 'ADMIN'),
+  allowRoles('SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'),
   attendanceDayOverview
 );
 

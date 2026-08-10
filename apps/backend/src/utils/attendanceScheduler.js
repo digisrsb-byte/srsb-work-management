@@ -39,6 +39,21 @@ async function sendPunchInReminders() {
        )
        AND NOT EXISTS (
          SELECT 1
+         FROM leave_requests lr
+         WHERE lr.employee_id = e.id
+           AND lr.status = 'APPROVED'
+           AND CURDATE() BETWEEN lr.start_date AND lr.end_date
+       )
+       AND NOT EXISTS (
+         SELECT 1
+         FROM attendance la
+         WHERE la.employee_id = e.id
+           AND la.attendance_date = CURDATE()
+           AND la.status IN ('LEAVE', 'HALF_DAY', 'HOLIDAY', 'WEEK_OFF', 'ABSENT')
+           AND la.punch_in IS NULL
+       )
+       AND NOT EXISTS (
+         SELECT 1
          FROM notifications n
          WHERE n.recipient_id = e.id
            AND n.type = 'PUNCH_IN_REMINDER'

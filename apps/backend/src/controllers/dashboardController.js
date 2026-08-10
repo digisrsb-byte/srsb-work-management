@@ -158,13 +158,37 @@ export const employeeDashboard = asyncHandler(async (req, res) => {
        SUM(punch_in IS NOT NULL AND status = 'PRESENT') presentDays,
        SUM(punch_in IS NOT NULL AND status = 'HALF_DAY') halfDays,
        SUM(punch_in IS NULL AND status = 'ABSENT') absentDays,
-       SUM(status = 'LEAVE') leaveDays,
+       SUM(status IN ('LEAVE', 'HALF_DAY') AND punch_in IS NULL) leaveDays,
        SUM(status = 'HOLIDAY') holidayDays
      FROM attendance
      WHERE employee_id = ?
        AND DATE_FORMAT(attendance_date, '%Y-%m') = DATE_FORMAT(${INDIA_DATE_SQL}, '%Y-%m')`,
     [employeeDbId]
   );
+
+  // Prefer approved leave_requests for leave day counts so historical approvals
+  // still show even before attendance backfill runs.
+  const [[approvedLeaveMonth]] = await pool.query(
+    `SELECT COALESCE(SUM(
+       DATEDIFF(
+         LEAST(end_date, LAST_DAY(${INDIA_DATE_SQL})),
+         GREATEST(start_date, DATE_FORMAT(${INDIA_DATE_SQL}, '%Y-%m-01'))
+       ) + 1
+     ), 0) AS leaveDays
+     FROM leave_requests
+     WHERE employee_id = ?
+       AND status = 'APPROVED'
+       AND start_date <= LAST_DAY(${INDIA_DATE_SQL})
+       AND end_date >= DATE_FORMAT(${INDIA_DATE_SQL}, '%Y-%m-01')`,
+    [employeeDbId]
+  );
+
+  if (monthly) {
+    monthly.leaveDays = Math.max(
+      Number(monthly.leaveDays || 0),
+      Number(approvedLeaveMonth?.leaveDays || 0)
+    );
+  }
 
   const [[tasks]] = await pool.query(
     `SELECT COUNT(*) total,

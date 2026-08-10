@@ -144,6 +144,10 @@ export const listCandidates = asyncHandler(async (req, res) => {
   if (req.query.assignedRecruiterId) {
     conditions.push('application.assigned_recruiter_id = ?');
     values.push(positiveId(req.query.assignedRecruiterId, 'employee filter'));
+  } else if (['EMPLOYEE', 'RECRUITER'].includes(req.user.role)) {
+    // Employee/Recruiter portals only see their assigned or self-created pipeline.
+    conditions.push('(application.assigned_recruiter_id = ? OR candidate.created_by = ?)');
+    values.push(req.user.id, req.user.id);
   }
   if (keyword) {
     conditions.push(`LOWER(CONCAT_WS(' ', candidate.full_name, candidate.email, candidate.phone,

@@ -3,13 +3,14 @@ import { CalendarClock, Download, Eye, FileUp, Pencil, Plus, Search, Trash2, X }
 import api from '../services/api.js';
 import useDebouncedValue from '../hooks/useDebouncedValue.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import { indiaDateTimeLocal } from '../utils/indiaDate.js';
 
 const taskAdminRoles = ['SUPER_ADMIN','ADMIN'];
 const statuses = ['PENDING','IN_PROGRESS','BLOCKED','COMPLETED','CANCELLED'];
 const priorities = ['LOW','MEDIUM','HIGH','URGENT'];
 const emptyForm = { title: '', description: '', assignedTo: '', startDate: '', dueDate: '', priority: 'MEDIUM', status: 'PENDING', progress: 0, remarks: '', extensionReason: '', attachment: null };
 const label = (value) => String(value || '').replaceAll('_',' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
-const localDateTime = (value) => value ? new Date(value).toISOString().slice(0, 16) : '';
+const localDateTime = indiaDateTimeLocal;
 const formatDate = (value) => value ? new Date(value).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : 'No deadline';
 
 async function filePayload(file) {

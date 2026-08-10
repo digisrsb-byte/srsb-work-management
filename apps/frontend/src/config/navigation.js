@@ -63,6 +63,7 @@ export const employeeNavigation = [
       { label: 'My Leave', path: '/employee/leave', icon: CalendarDays },
       { label: 'Holiday Calendar', path: '/employee/holidays', icon: CalendarCheck2 },
       { label: 'My Tasks', path: '/employee/tasks', icon: ListTodo },
+      { label: 'Job Requirements', path: '/employee/openings', icon: BriefcaseBusiness },
       { label: 'Candidates', path: '/employee/candidates', icon: UserRoundSearch },
       { label: 'My Profile', path: '/employee/profile', icon: UserCircle }
     ]

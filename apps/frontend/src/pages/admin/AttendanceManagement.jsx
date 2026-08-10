@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CalendarDays, Clock3, Pencil, RefreshCw, Users, X } from 'lucide-react';
 import api from '../../services/api.js';
 import MonthlyCalendar, { shiftMonth } from '../../components/MonthlyCalendar.jsx';
+import { indiaDateValue } from '../../utils/indiaDate.js';
 
 const editableStatuses = [
   'PRESENT',
@@ -25,13 +26,6 @@ const statusLabels = {
   NOT_MARKED: 'Not Punched / Not Marked',
   FUTURE: 'Future'
 };
-
-function localDateValue(date = new Date()) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
 
 function label(value) {
   return statusLabels[value] || String(value || '').replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -62,7 +56,7 @@ function inputDateTime(date, value, fallback) {
 }
 
 export default function AttendanceManagement() {
-  const today = useMemo(() => localDateValue(), []);
+  const today = useMemo(() => indiaDateValue(), []);
   const [selectedDate, setSelectedDate] = useState(today);
   const [month, setMonth] = useState(today.slice(0, 7));
   const [data, setData] = useState(null);

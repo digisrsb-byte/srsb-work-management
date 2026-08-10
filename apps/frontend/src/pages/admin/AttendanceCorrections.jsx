@@ -3,10 +3,11 @@ import { Check, Clock3, PencilLine, Search, X, XCircle } from 'lucide-react';
 import api from '../../services/api.js';
 import useDebouncedValue from '../../hooks/useDebouncedValue.js';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { indiaDateValue } from '../../utils/indiaDate.js';
 
 const emptyManual = {
   employeeId: '',
-  date: new Date().toISOString().slice(0, 10),
+  date: indiaDateValue(),
   punchIn: '',
   punchOut: '',
   status: '',

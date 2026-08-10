@@ -3,18 +3,17 @@ import { Bell, DownloadCloud, LockKeyhole, RefreshCw, Save, UserCircle } from 'l
 import api from '../services/api.js';
 import { useAuth } from '../context/AuthContext.jsx';
 
+const defaultPreferences = {
+  emailNotifications: true,
+  leaveNotifications: true,
+  taskNotifications: true,
+  candidateNotifications: true
+};
+
 export default function Settings() {
   const { user } = useAuth();
   const desktop = window.srsbDesktop;
-  const [preferences, setPreferences] = useState(() => {
-    const saved = localStorage.getItem('srsb-settings');
-    return saved ? JSON.parse(saved) : {
-      emailNotifications: true,
-      leaveNotifications: true,
-      taskNotifications: true,
-      candidateNotifications: true
-    };
-  });
+  const [preferences, setPreferences] = useState(defaultPreferences);
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [version, setVersion] = useState('Web');
   const [updateInfo, setUpdateInfo] = useState(null);
@@ -24,6 +23,7 @@ export default function Settings() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [savingPassword, setSavingPassword] = useState(false);
+  const [savingPreferences, setSavingPreferences] = useState(false);
 
   useEffect(() => {
     desktop?.getVersion?.().then(setVersion).catch(() => setVersion('Web'));
@@ -31,10 +31,36 @@ export default function Settings() {
     return () => removeProgress?.();
   }, [desktop]);
 
-  function savePreferences() {
-    localStorage.setItem('srsb-settings', JSON.stringify(preferences));
-    setError('');
-    setMessage('Notification preferences saved successfully.');
+  useEffect(() => {
+    api.get('/profile/notification-preferences')
+      .then((response) => {
+        setPreferences({ ...defaultPreferences, ...(response.data.data || {}) });
+      })
+      .catch(() => {
+        const saved = localStorage.getItem('srsb-settings');
+        if (saved) {
+          try {
+            setPreferences({ ...defaultPreferences, ...JSON.parse(saved) });
+          } catch {
+            setPreferences(defaultPreferences);
+          }
+        }
+      });
+  }, []);
+
+  async function savePreferences() {
+    try {
+      setSavingPreferences(true);
+      setError('');
+      const response = await api.put('/profile/notification-preferences', preferences);
+      setPreferences(response.data.data || preferences);
+      localStorage.setItem('srsb-settings', JSON.stringify(response.data.data || preferences));
+      setMessage(response.data.message || 'Notification preferences saved successfully.');
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || 'Notification preferences could not be saved.');
+    } finally {
+      setSavingPreferences(false);
+    }
   }
 
   async function changePassword(event) {
@@ -117,7 +143,7 @@ export default function Settings() {
             ['taskNotifications', 'Task Updates'],
             ['candidateNotifications', 'Candidate and Recruitment Updates']
           ].map(([key, label]) => <label className="settings-toggle" key={key}><span>{label}</span><input type="checkbox" checked={preferences[key]} onChange={(event) => setPreferences((current) => ({ ...current, [key]: event.target.checked }))} /></label>)}
-          <button className="btn btn-primary" type="button" onClick={savePreferences}><Save size={17} /> Save Preferences</button>
+          <button className="btn btn-primary" type="button" onClick={savePreferences} disabled={savingPreferences}><Save size={17} /> {savingPreferences ? 'Saving…' : 'Save Preferences'}</button>
         </div>
 
         <form className="card settings-card" onSubmit={changePassword}>

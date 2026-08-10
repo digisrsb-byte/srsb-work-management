@@ -7,7 +7,9 @@ import {
   updateMyProfile,
   saveMyAddress,
   saveMyEmergencyContact,
-  changeMyPassword
+  changeMyPassword,
+  getMyNotificationPreferences,
+  updateMyNotificationPreferences
 } from '../controllers/profileController.js';
 
 const router = Router();
@@ -154,4 +156,9 @@ router.put(
   ],
   changeMyPassword
 );
+
+router.get('/notification-preferences', getMyNotificationPreferences);
+
+router.put('/notification-preferences', updateMyNotificationPreferences);
+
 export default router;

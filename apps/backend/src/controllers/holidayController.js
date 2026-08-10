@@ -59,6 +59,17 @@ export const listHolidays = asyncHandler(async (req, res) => {
     conditions.push('h.holiday_date <= ?');
     values.push(validDate(req.query.to, 'end date'));
   }
+
+  const isPrivileged = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'].includes(req.user.role);
+  if (!isPrivileged) {
+    const [[employee]] = await pool.query(
+      'SELECT department_id FROM employees WHERE id = ? LIMIT 1',
+      [req.user.id]
+    );
+    conditions.push('(h.department_id IS NULL OR h.department_id = ?)');
+    values.push(employee?.department_id || null);
+  }
+
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
   const [rows] = await pool.query(
     `SELECT h.id, h.holiday_name, h.holiday_date, h.holiday_type, h.description,

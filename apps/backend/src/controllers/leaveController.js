@@ -1,6 +1,7 @@
 import { pool } from '../config/database.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
+import { syncApprovedLeaveAttendance } from '../utils/leaveAttendance.js';
 
 async function createNotifications({
   recipientIds,
@@ -452,118 +453,142 @@ export const reviewLeaveRequest = asyncHandler(
       );
     }
 
-    const [rows] = await pool.query(
-      `SELECT
-         lr.id,
-         lr.employee_id,
-         lr.status,
-         lr.leave_type,
-         lr.start_date,
-         lr.end_date,
-         e.full_name AS employee_name,
-         e.role AS employee_role,
-         e.account_type AS employee_account_type
-       FROM leave_requests lr
-       JOIN employees e
-         ON e.id = lr.employee_id
-       WHERE lr.id = ?
-       LIMIT 1`,
-      [id]
-    );
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
 
-    if (!rows.length) {
-      throw new AppError(
-        'Leave request not found.',
-        404
+      const [rows] = await connection.query(
+        `SELECT
+           lr.id,
+           lr.employee_id,
+           lr.status,
+           lr.leave_type,
+           lr.duration_type,
+           lr.start_date,
+           lr.end_date,
+           e.full_name AS employee_name,
+           e.role AS employee_role,
+           e.account_type AS employee_account_type
+         FROM leave_requests lr
+         JOIN employees e
+           ON e.id = lr.employee_id
+         WHERE lr.id = ?
+         LIMIT 1
+         FOR UPDATE`,
+        [id]
       );
-    }
 
-    const leaveRequest = rows[0];
+      if (!rows.length) {
+        throw new AppError(
+          'Leave request not found.',
+          404
+        );
+      }
 
-    if (leaveRequest.status !== 'PENDING') {
-      throw new AppError(
-        'This leave request has already been reviewed.',
-        400
+      const leaveRequest = rows[0];
+
+      if (leaveRequest.status !== 'PENDING') {
+        throw new AppError(
+          'This leave request has already been reviewed.',
+          400
+        );
+      }
+
+      if (leaveRequest.employee_id === req.user.id) {
+        throw new AppError(
+          'You cannot approve or reject your own leave request.',
+          403
+        );
+      }
+
+      if (leaveRequest.employee_account_type === 'SYSTEM') {
+        throw new AppError(
+          'Head Admin system accounts do not use employee leave.',
+          400
+        );
+      }
+
+      if (
+        leaveRequest.employee_role === 'ADMIN' &&
+        req.user.role !== 'SUPER_ADMIN'
+      ) {
+        throw new AppError(
+          'Only the Head Admin can approve or reject an Admin leave request.',
+          403
+        );
+      }
+
+      await connection.query(
+        `UPDATE leave_requests
+         SET
+           status = ?,
+           reviewed_by = ?,
+           reviewer_comment = ?,
+           reviewed_at = NOW()
+         WHERE id = ?`,
+        [
+          status,
+          req.user.id,
+          reviewerComment.trim() || null,
+          id
+        ]
       );
-    }
 
-    if (leaveRequest.employee_id === req.user.id) {
-      throw new AppError(
-        'You cannot approve or reject your own leave request.',
-        403
-      );
-    }
+      if (status === 'APPROVED') {
+        await syncApprovedLeaveAttendance(connection, {
+          employeeId: leaveRequest.employee_id,
+          startDate: leaveRequest.start_date,
+          endDate: leaveRequest.end_date,
+          durationType: leaveRequest.duration_type,
+          leaveType: leaveRequest.leave_type
+        });
+      }
 
-    if (leaveRequest.employee_account_type === 'SYSTEM') {
-      throw new AppError(
-        'Head Admin system accounts do not use employee leave.',
-        400
-      );
-    }
+      await connection.commit();
 
-    if (
-      leaveRequest.employee_role === 'ADMIN' &&
-      req.user.role !== 'SUPER_ADMIN'
-    ) {
-      throw new AppError(
-        'Only the Head Admin can approve or reject an Admin leave request.',
-        403
-      );
-    }
-
-    await pool.query(
-      `UPDATE leave_requests
-       SET
-         status = ?,
-         reviewed_by = ?,
-         reviewer_comment = ?,
-         reviewed_at = NOW()
-       WHERE id = ?`,
-      [
-        status,
-        req.user.id,
-        reviewerComment.trim() || null,
-        id
-      ]
-    );
-
-    const statusText =
-      status === 'APPROVED'
-        ? 'approved'
-        : 'rejected';
-
-    await createNotifications({
-      recipientIds: [leaveRequest.employee_id],
-      actorId: req.user.id,
-      type:
+      const statusText =
         status === 'APPROVED'
-          ? 'LEAVE_APPROVED'
-          : 'LEAVE_REJECTED',
-      title:
-        status === 'APPROVED'
-          ? 'Leave Request Approved'
-          : 'Leave Request Rejected',
-      message: `Your ${leaveRequest.leave_type
-        .replaceAll('_', ' ')
-        .toLowerCase()} leave request from ${
-        leaveRequest.start_date
-      } to ${
-        leaveRequest.end_date
-      } was ${statusText}.${
-        reviewerComment.trim()
-          ? ` Comment: ${reviewerComment.trim()}`
-          : ''
-      }`,
-      referenceType: 'LEAVE_REQUEST',
-      referenceId: Number(id)
-    });
+          ? 'approved'
+          : 'rejected';
 
-    res.json({
-      success: true,
-      message:
-        status === 'APPROVED'
-          ? 'Leave request approved successfully.'
-          : 'Leave request rejected successfully.'
-    });
+      await createNotifications({
+        recipientIds: [leaveRequest.employee_id],
+        actorId: req.user.id,
+        type:
+          status === 'APPROVED'
+            ? 'LEAVE_APPROVED'
+            : 'LEAVE_REJECTED',
+        title:
+          status === 'APPROVED'
+            ? 'Leave Request Approved'
+            : 'Leave Request Rejected',
+        message: `Your ${leaveRequest.leave_type
+          .replaceAll('_', ' ')
+          .toLowerCase()} leave request from ${
+          leaveRequest.start_date
+        } to ${
+          leaveRequest.end_date
+        } was ${statusText}.${
+          reviewerComment.trim()
+            ? ` Comment: ${reviewerComment.trim()}`
+            : ''
+        }`,
+        referenceType: 'LEAVE_REQUEST',
+        referenceId: Number(id)
+      });
+
+      res.json({
+        success: true,
+        message:
+          status === 'APPROVED'
+            ? 'Leave request approved successfully.'
+            : 'Leave request rejected successfully.'
+      });
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
 );

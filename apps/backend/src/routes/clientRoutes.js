@@ -28,7 +28,8 @@ router.get(
     'ADMIN',
     'HR',
     'MANAGER',
-    'RECRUITER'
+    'RECRUITER',
+    'EMPLOYEE'
   ),
   listClients
 );

@@ -282,3 +282,57 @@ export const changeMyPassword = asyncHandler(async (req, res) => {
     message: 'Password changed successfully.'
   });
 });
+
+const defaultNotificationPreferences = {
+  emailNotifications: true,
+  leaveNotifications: true,
+  taskNotifications: true,
+  candidateNotifications: true
+};
+
+function parseNotificationPreferences(raw) {
+  if (!raw) return { ...defaultNotificationPreferences };
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return {
+      emailNotifications: parsed.emailNotifications !== false,
+      leaveNotifications: parsed.leaveNotifications !== false,
+      taskNotifications: parsed.taskNotifications !== false,
+      candidateNotifications: parsed.candidateNotifications !== false
+    };
+  } catch {
+    return { ...defaultNotificationPreferences };
+  }
+}
+
+export const getMyNotificationPreferences = asyncHandler(async (req, res) => {
+  const [[row]] = await pool.query(
+    'SELECT notification_preferences FROM employees WHERE id = ? LIMIT 1',
+    [req.user.id]
+  );
+  if (!row) throw new AppError('Account not found.', 404);
+  res.json({
+    success: true,
+    data: parseNotificationPreferences(row.notification_preferences)
+  });
+});
+
+export const updateMyNotificationPreferences = asyncHandler(async (req, res) => {
+  const preferences = {
+    emailNotifications: req.body.emailNotifications !== false,
+    leaveNotifications: req.body.leaveNotifications !== false,
+    taskNotifications: req.body.taskNotifications !== false,
+    candidateNotifications: req.body.candidateNotifications !== false
+  };
+
+  await pool.query(
+    'UPDATE employees SET notification_preferences = ? WHERE id = ?',
+    [JSON.stringify(preferences), req.user.id]
+  );
+
+  res.json({
+    success: true,
+    message: 'Notification preferences saved successfully.',
+    data: preferences
+  });
+});

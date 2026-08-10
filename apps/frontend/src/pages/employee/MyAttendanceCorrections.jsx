@@ -1,9 +1,10 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import { Clock3, Plus } from 'lucide-react';
 import api from '../../services/api.js';
+import { indiaDateValue } from '../../utils/indiaDate.js';
 
 const emptyForm = {
-  correctionDate: new Date().toISOString().slice(0, 10),
+  correctionDate: indiaDateValue(),
   issueType: 'FORGOT_PUNCH_OUT',
   requestedPunchIn: '',
   requestedPunchOut: '',

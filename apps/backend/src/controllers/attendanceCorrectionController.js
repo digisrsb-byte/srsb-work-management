@@ -168,7 +168,9 @@ export const listCorrectionRequests = asyncHandler(async (req, res) => {
     values.push(`%${keyword}%`);
   }
   if (req.user.role === 'MANAGER') {
-    conditions.push('(e.manager_id = ? OR e.id = ?)');
+    // Include direct reports and employees with no manager assigned so lists
+    // are not empty when manager_id was never populated.
+    conditions.push('(e.manager_id = ? OR e.manager_id IS NULL OR e.id = ?)');
     values.push(req.user.id, req.user.id);
   }
 
@@ -263,6 +265,24 @@ export const reviewCorrectionRequest = asyncHandler(async (req, res) => {
       [req.user.id, `ATTENDANCE_CORRECTION_${decision}`, String(requestId),
         JSON.stringify({ employeeId: request.employee_id, date: correctionDate, punchIn, punchOut }),
         req.ip || null]
+    );
+
+    await connection.query(
+      `INSERT INTO notifications (
+         recipient_id, actor_id, type, title, message, reference_type, reference_id
+       ) VALUES (?, ?, ?, ?, ?, 'ATTENDANCE_CORRECTION', ?)`,
+      [
+        request.employee_id,
+        req.user.id,
+        decision === 'APPROVED' ? 'ATTENDANCE_CORRECTION_APPROVED' : 'ATTENDANCE_CORRECTION_REJECTED',
+        decision === 'APPROVED' ? 'Attendance Correction Approved' : 'Attendance Correction Rejected',
+        `Your attendance correction for ${correctionDate} was ${decision.toLowerCase()}.${
+          String(req.body.reviewerComment || '').trim()
+            ? ` Comment: ${String(req.body.reviewerComment).trim()}`
+            : ''
+        }`,
+        requestId
+      ]
     );
 
     await connection.commit();

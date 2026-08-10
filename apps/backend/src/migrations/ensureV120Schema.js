@@ -294,5 +294,11 @@ export async function ensureV120Schema() {
      )`
   );
 
+  await addColumn(
+    'employees',
+    'notification_preferences',
+    `JSON NULL COMMENT 'Persisted notification preference toggles'`
+  );
+
   console.log('Version 1.2.0 database schema is ready.');
 }
