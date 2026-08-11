@@ -24,6 +24,8 @@ import AttendanceCorrections from '../pages/admin/AttendanceCorrections.jsx';
 import MyAttendanceCorrections from '../pages/employee/MyAttendanceCorrections.jsx';
 import Holidays from '../pages/admin/Holidays.jsx';
 import Invoices from '../pages/admin/Invoices.jsx';
+import ActivationCodes from '../pages/admin/ActivationCodes.jsx';
+import { isSrsbHeadAdmin } from '../utils/srsbHeadAdmin.js';
 
 const adminRoles = [
   'SUPER_ADMIN',
@@ -120,6 +122,16 @@ export default function AppRoutes() {
 
         <Route path="/admin/holidays" element={<Holidays />} />
         <Route path="/admin/invoices" element={<ProtectedRoute roles={['SUPER_ADMIN']}><Invoices /></ProtectedRoute>} />
+        <Route
+          path="/admin/activation-codes"
+          element={
+            isSrsbHeadAdmin(user) ? (
+              <ActivationCodes />
+            ) : (
+              <Navigate to="/admin" replace />
+            )
+          }
+        />
 
       <Route
   path="/admin/candidates"

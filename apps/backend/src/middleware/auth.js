@@ -101,3 +101,37 @@ export function allowRoles(...roles) {
     next();
   };
 }
+
+/**
+ * Only the platform head Super Admin on the default company (SRSB)
+ * may manage activation codes from the app UI.
+ */
+export function requireSrsbHeadAdmin(req, res, next) {
+  const email = String(req.user?.email || '')
+    .trim()
+    .toLowerCase();
+  const companyCode = String(req.user?.companyCode || '')
+    .trim()
+    .toUpperCase();
+  const expectedEmail = String(env.superAdminEmail || '')
+    .trim()
+    .toLowerCase();
+
+  const allowed =
+    req.user?.role === 'SUPER_ADMIN' &&
+    companyCode === env.defaultCompanyCode &&
+    email &&
+    expectedEmail &&
+    email === expectedEmail;
+
+  if (!allowed) {
+    return next(
+      new AppError(
+        'Only the SRSB Head Super Admin can manage activation codes.',
+        403
+      )
+    );
+  }
+
+  return next();
+}

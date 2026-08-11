@@ -361,19 +361,34 @@ export default function Invoices() {
     }
   }
 
-  async function markPaymentReceived(invoice) {
-    const confirmed = window.confirm(
-      `Mark payment as Received for invoice ${invoice.invoice_number}?`
-    );
+  function isPaymentReceivedStatus(status) {
+    return ['RECEIVED', 'SUCCESS', 'PAID'].includes(String(status || '').toUpperCase());
+  }
+
+  async function togglePaymentStatus(invoice) {
+    const received = isPaymentReceivedStatus(invoice.status);
+    const confirmed = received
+      ? window.confirm(
+          `Payment still pending for invoice ${invoice.invoice_number}?\n\nClick OK to set the status back to Pending.`
+        )
+      : window.confirm(
+          `Mark payment as Received for invoice ${invoice.invoice_number}?`
+        );
     if (!confirmed) return;
+
     try {
       setSaving(true);
       setError('');
       const response = await api.patch(
         `/invoices/${invoice.id}/payment-outcome`,
-        { outcome: 'RECEIVED' }
+        { outcome: received ? 'PENDING' : 'RECEIVED' }
       );
-      setMessage(response.data.message || 'Payment marked as Received.');
+      setMessage(
+        response.data.message ||
+          (received
+            ? 'Payment marked as Pending.'
+            : 'Payment marked as Received.')
+      );
       await loadInvoices();
     } catch (requestError) {
       setError(
@@ -672,14 +687,11 @@ export default function Invoices() {
                       {invoice.status !== 'CANCELLED' && (
                         <button className="icon-btn" title="Edit" onClick={() => openEdit(invoice)}><Pencil size={16} /></button>
                       )}
-                      {invoice.status !== 'CANCELLED' &&
-                        invoice.status !== 'RECEIVED' &&
-                        invoice.status !== 'SUCCESS' &&
-                        invoice.status !== 'PAID' && (
+                      {invoice.status !== 'CANCELLED' && (
                         <button
                           className="btn btn-secondary btn-small"
                           disabled={saving}
-                          onClick={() => markPaymentReceived(invoice)}
+                          onClick={() => togglePaymentStatus(invoice)}
                         >
                           Payment
                         </button>

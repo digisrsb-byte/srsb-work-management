@@ -508,8 +508,18 @@ export const setPaymentOutcome = asyncHandler(async (req, res) => {
         [total, id]
       );
     } else if (outcome === 'PENDING') {
+      // Revert to unpaid: clear payment history from the quick Payment action.
       await connection.query(
-        `UPDATE invoices SET status = 'PENDING' WHERE id = ?`,
+        `DELETE FROM invoice_payments WHERE invoice_id = ?`,
+        [id]
+      );
+      await connection.query(
+        `UPDATE invoices
+         SET paid_amount = 0,
+             payment_released = FALSE,
+             payment_date = NULL,
+             status = 'PENDING'
+         WHERE id = ?`,
         [id]
       );
     } else {
@@ -522,9 +532,15 @@ export const setPaymentOutcome = asyncHandler(async (req, res) => {
     await connection.commit();
     const finalStatus =
       outcome === 'SUCCESS' || outcome === 'RECEIVED' ? 'RECEIVED' : outcome;
+    const statusLabel =
+      finalStatus === 'RECEIVED'
+        ? 'Received'
+        : finalStatus === 'PENDING'
+          ? 'Pending'
+          : finalStatus.toLowerCase();
     res.json({
       success: true,
-      message: `Payment marked as ${finalStatus === 'RECEIVED' ? 'Received' : finalStatus.toLowerCase()}.`,
+      message: `Payment marked as ${statusLabel}.`,
       data: { status: finalStatus }
     });
   } catch (error) {

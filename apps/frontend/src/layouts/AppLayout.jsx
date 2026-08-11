@@ -30,6 +30,7 @@ import {
 
 import api from '../services/api.js';
 import UpdateBanner from '../components/UpdateBanner.jsx';
+import { isSrsbHeadAdmin } from '../utils/srsbHeadAdmin.js';
 
 function formatNotificationDate(value) {
   if (!value) {
@@ -68,6 +69,10 @@ export default function AppLayout({ mode }) {
     items: group.items.filter((item) => {
       if (item.path === '/admin/invoices') {
         return user?.role === 'SUPER_ADMIN';
+      }
+
+      if (item.path === '/admin/activation-codes') {
+        return isSrsbHeadAdmin(user);
       }
 
       if (['/admin/employees', '/admin/passwords'].includes(item.path)) {

@@ -18,6 +18,7 @@ import appUpdateRoutes from './appUpdateRoutes.js';
 import onboardingRoutes from './onboardingRoutes.js';
 import companyRoutes from './companyRoutes.js';
 import platformRoutes from './platformRoutes.js';
+import activationCodeRoutes from './activationCodeRoutes.js';
 
 const router = Router();
 
@@ -25,6 +26,7 @@ router.use('/auth', authRoutes);
 router.use('/onboarding', onboardingRoutes);
 router.use('/company', companyRoutes);
 router.use('/platform', platformRoutes);
+router.use('/activation-codes', activationCodeRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/employees', employeeRoutes);
 router.use('/attendance', attendanceRoutes);

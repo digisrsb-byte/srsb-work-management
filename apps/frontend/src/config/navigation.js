@@ -48,6 +48,11 @@ export const adminNavigation = [
   {
     section: 'System',
     items: [
+      {
+        label: 'Activation Codes',
+        path: '/admin/activation-codes',
+        icon: KeyRound
+      },
       { label: 'Settings & Updates', path: '/admin/settings', icon: Settings }
     ]
   }
