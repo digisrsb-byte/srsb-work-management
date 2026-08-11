@@ -33,12 +33,9 @@ const adminRoles = [
 ];
 
 function getUnauthenticatedHome() {
-  // First-run EXE/web: no local company context yet → setup wizard.
-  // After setup or a successful login, company code is stored and login opens.
-  const hasCompany = Boolean(
-    localStorage.getItem('srsb_company_code')
-  );
-  return hasCompany ? '/login' : '/setup';
+  // Existing companies (including SRSB) go to login.
+  // Brand-new companies use Login → "New company? Complete setup".
+  return '/login';
 }
 
 export default function AppRoutes() {

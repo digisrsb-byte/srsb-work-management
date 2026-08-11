@@ -32,6 +32,8 @@ const managementRoles = [
   'MANAGER'
 ];
 
+const DEFAULT_COMPANY_CODE = 'SRSB';
+
 function readInitialCompanyCode(searchParams) {
   const fromQuery =
     searchParams.get('companyCode') ||
@@ -43,7 +45,9 @@ function readInitialCompanyCode(searchParams) {
   const saved = getLastSavedCompanyCode();
   if (saved) return saved.toUpperCase();
   const stored = localStorage.getItem('srsb_company_code');
-  return stored ? stored.toUpperCase() : '';
+  if (stored) return stored.toUpperCase();
+  // Existing SRSB workspace — company code is always SRSB.
+  return DEFAULT_COMPANY_CODE;
 }
 
 export default function Login() {
@@ -384,10 +388,14 @@ export default function Login() {
                     event.target.value.toUpperCase()
                   )
                 }
-                placeholder="e.g. SRSB or ACME"
+                placeholder="SRSB"
                 autoComplete="organization"
                 required
               />
+              <small style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                SRSB users: use company code <strong>SRSB</strong>. Other
+                companies use the code created during setup.
+              </small>
             </div>
 
             {!companyCode.trim() && (
