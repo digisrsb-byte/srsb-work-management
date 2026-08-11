@@ -19,6 +19,11 @@ import {
 import { useAuth } from '../context/AuthContext.jsx';
 import BrandLogo from '../components/BrandLogo.jsx';
 import api from '../services/api.js';
+import {
+  getLastSavedCompanyCode,
+  getSavedLogin,
+  saveLoginCredentials
+} from '../utils/savedLogin.js';
 
 const managementRoles = [
   'SUPER_ADMIN',
@@ -35,18 +40,26 @@ function readInitialCompanyCode(searchParams) {
   if (fromQuery.trim()) {
     return fromQuery.trim().toUpperCase();
   }
+  const saved = getLastSavedCompanyCode();
+  if (saved) return saved.toUpperCase();
   const stored = localStorage.getItem('srsb_company_code');
   return stored ? stored.toUpperCase() : '';
 }
 
 export default function Login() {
   const [searchParams] = useSearchParams();
+  const initialCompanyCode = readInitialCompanyCode(searchParams);
+  const initialSaved = getSavedLogin(initialCompanyCode);
+
   const [mode, setMode] = useState('login');
-  const [companyCode, setCompanyCode] = useState(() =>
-    readInitialCompanyCode(searchParams)
+  const [companyCode, setCompanyCode] = useState(initialCompanyCode);
+  const [loginId, setLoginId] = useState(
+    () => initialSaved?.loginId || ''
   );
-  const [loginId, setLoginId] = useState('');
-  const [password, setPassword] = useState('');
+  const [password, setPassword] = useState(
+    () => initialSaved?.password || ''
+  );
+  const [rememberMe, setRememberMe] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [otp, setOtp] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -54,6 +67,7 @@ export default function Login() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  const autoLoginAttempted = useMemo(() => ({ current: false }), []);
 
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -68,6 +82,17 @@ export default function Login() {
       setMessage(location.state.setupMessage);
     }
   }, [location.state]);
+
+  // When company code changes, load that company's saved email/password.
+  useEffect(() => {
+    const code = companyCode.trim().toUpperCase();
+    if (!code) return;
+    const saved = getSavedLogin(code);
+    if (!saved || saved.companyCode !== code) return;
+    setLoginId(saved.loginId || '');
+    setPassword(saved.password || '');
+    setRememberMe(true);
+  }, [companyCode]);
 
   useEffect(() => {
     const code = companyCode.trim();
@@ -141,12 +166,62 @@ export default function Login() {
   const goLogin = () => {
     clearFeedback();
     setMode('login');
-    setLoginId('');
-    setPassword('');
+    const saved = getSavedLogin(companyCode);
+    setLoginId(saved?.loginId || '');
+    setPassword(saved?.password || '');
     setOtp('');
     setNewPassword('');
     setConfirmPassword('');
   };
+
+  async function performLogin(nextLoginId, nextPassword, nextCompanyCode) {
+    const user = await login(
+      nextLoginId.trim(),
+      nextPassword,
+      nextCompanyCode.trim()
+    );
+
+    saveLoginCredentials({
+      companyCode: nextCompanyCode.trim(),
+      loginId: nextLoginId.trim(),
+      password: nextPassword,
+      remember: rememberMe
+    });
+
+    navigate(
+      managementRoles.includes(user.role)
+        ? '/admin'
+        : '/employee',
+      { replace: true }
+    );
+    return user;
+  }
+
+  // Auto sign-in once when saved credentials exist (EXE convenience).
+  useEffect(() => {
+    if (mode !== 'login') return;
+    if (autoLoginAttempted.current) return;
+    if (location.state?.setupMessage) return;
+    if (localStorage.getItem('srsb_token')) return;
+
+    const saved = getSavedLogin(companyCode);
+    if (!saved?.loginId || !saved?.password || !saved?.companyCode) {
+      return;
+    }
+
+    autoLoginAttempted.current = true;
+    clearFeedback();
+    setLoading(true);
+    performLogin(saved.loginId, saved.password, saved.companyCode)
+      .catch((err) => {
+        setError(
+          err.response?.data?.message ||
+            'Saved sign-in failed. Please enter your password.'
+        );
+      })
+      .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
 
   async function submitLogin(event) {
     event.preventDefault();
@@ -154,19 +229,7 @@ export default function Login() {
 
     try {
       setLoading(true);
-
-      const user = await login(
-        loginId.trim(),
-        password,
-        companyCode.trim()
-      );
-
-      navigate(
-        managementRoles.includes(user.role)
-          ? '/admin'
-          : '/employee',
-        { replace: true }
-      );
+      await performLogin(loginId, password, companyCode);
     } catch (err) {
       setError(
         err.response?.data?.message ||
@@ -389,29 +452,43 @@ export default function Login() {
               </div>
             </div>
 
-            <button
-              type="button"
-              className="text-button"
-              onClick={() => {
-                clearFeedback();
-                setMode('forgot');
-                setPassword('');
-                setLoginId('');
-              }}
-            >
-              Forgot password?
-            </button>
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => {
+                    clearFeedback();
+                    setMode('forgot');
+                    setPassword('');
+                    setLoginId('');
+                  }}
+                >
+                  Forgot password?
+                </button>
 
-            <button
-              className="btn btn-primary"
-              style={{
-                width: '100%',
-                marginTop: 20
-              }}
-              disabled={loading}
-            >
-              {loading ? 'Signing in...' : 'Sign in securely'}
-            </button>
+                <label
+                  className="settings-toggle"
+                  style={{ marginTop: 12 }}
+                >
+                  <span>Remember company, email and password on this device</span>
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(event) =>
+                      setRememberMe(event.target.checked)
+                    }
+                  />
+                </label>
+
+                <button
+                  className="btn btn-primary"
+                  style={{
+                    width: '100%',
+                    marginTop: 20
+                  }}
+                  disabled={loading}
+                >
+                  {loading ? 'Signing in...' : 'Sign in securely'}
+                </button>
 
             <p
               style={{
