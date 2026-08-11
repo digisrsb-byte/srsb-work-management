@@ -15,10 +15,16 @@ import invoiceRoutes from './invoiceRoutes.js';
 import attendanceCorrectionRoutes from './attendanceCorrectionRoutes.js';
 import holidayRoutes from './holidayRoutes.js';
 import appUpdateRoutes from './appUpdateRoutes.js';
+import onboardingRoutes from './onboardingRoutes.js';
+import companyRoutes from './companyRoutes.js';
+import platformRoutes from './platformRoutes.js';
 
 const router = Router();
 
 router.use('/auth', authRoutes);
+router.use('/onboarding', onboardingRoutes);
+router.use('/company', companyRoutes);
+router.use('/platform', platformRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/employees', employeeRoutes);
 router.use('/attendance', attendanceRoutes);

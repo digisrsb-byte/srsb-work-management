@@ -18,6 +18,10 @@
     "migrate:v110": "npm --workspace apps/backend run migrate:v110",
     "validate:backend": "node scripts/validate-backend.cjs",
     "migrate:v120": "npm --workspace apps/backend run migrate:v120",
+    "activation:create": "npm --workspace apps/backend run activation:create",
+    "companies:list": "npm --workspace apps/backend run companies:list",
+    "companies:suspend": "npm --workspace apps/backend run companies:suspend",
+    "companies:activate": "npm --workspace apps/backend run companies:activate",
     "validate:v120": "node scripts/validate-v120.cjs"
   },
   "allowScripts": {

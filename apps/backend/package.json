@@ -9,7 +9,11 @@
     "seed": "node src/seed.js",
     "seed:demo": "node src/seedDemo.js",
     "migrate:v110": "node src/migrateV110.js",
-    "migrate:v120": "node src/migrateV120.js"
+    "migrate:v120": "node src/migrateV120.js",
+    "activation:create": "node src/scripts/createActivationCode.js",
+    "companies:list": "node src/scripts/manageCompanies.js list",
+    "companies:suspend": "node src/scripts/manageCompanies.js suspend",
+    "companies:activate": "node src/scripts/manageCompanies.js activate"
   },
   "dependencies": {
     "bcryptjs": "2.4.3",

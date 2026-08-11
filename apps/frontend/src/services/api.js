@@ -2,7 +2,7 @@ import axios from 'axios';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api',
-  timeout: 15000
+  timeout: 60000
 });
 
 api.interceptors.request.use(
@@ -33,17 +33,22 @@ api.interceptors.response.use(
   (error) => {
     const status = error.response?.status;
     const savedToken = localStorage.getItem('srsb_token');
+    const apiMessage = error.response?.data?.message || '';
+    const suspended =
+      status === 403 && /suspended/i.test(apiMessage);
 
-    // Only treat a 401 as an expired session when a token was already saved.
-    // This prevents incorrect-password errors on the login page from
-    // triggering an unnecessary reload.
-    if (status === 401 && savedToken) {
+    // Clear session on expired auth, or when the company is suspended mid-session.
+    // Keep srsb_company_code so login stays prefilled.
+    if (savedToken && (status === 401 || suspended)) {
       localStorage.removeItem('srsb_token');
       localStorage.removeItem('srsb_user');
 
       sessionStorage.setItem(
         'srsb_session_message',
-        'Your session has expired. Please log in again.'
+        suspended
+          ? apiMessage ||
+              'This company is suspended. Contact the platform administrator.'
+          : 'Your session has expired. Please log in again.'
       );
 
       // Prevent several failed dashboard requests from reloading repeatedly.

@@ -1,22 +1,31 @@
 ﻿import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-export const SRSB_INVOICE_PROFILE = Object.freeze({
-  legalName: 'SRSB WORKFORCE SOLUTIONS PVT LTD',
-  gstNumber: '29ABQCS9374K1Z6',
-  registeredAddress: 'No. 228/B, 55th Cross, 3rd Block, Rajajinagar, Bangalore - 560010',
-  email: 'srsbhrsolutions25@gmail.com',
-  phone: '8317406575 / 8660666087',
+export const DEFAULT_INVOICE_PROFILE = Object.freeze({
+  legalName: 'Company Name',
+  gstNumber: '',
+  registeredAddress: '',
+  email: '',
+  phone: '',
   sacCode: '998616',
-  stateCode: '29',
+  stateCode: '',
   recruitmentDescription: 'This is with Regard to manpower recruitment charges of below mentioned Candidates',
-  bankAccountName: 'SRSB WORKFORCE SOLUTIONS PVT LTD',
-  bankAccountNumber: '13340200111222',
-  bankIfsc: 'FDRL0001334',
-  bankName: 'Federal Bank',
-  bankBranch: 'Rajajinagar',
-  signatoryLabel: 'Authorised Signatory'
+  bankAccountName: '',
+  bankAccountNumber: '',
+  bankIfsc: '',
+  bankName: '',
+  bankBranch: '',
+  signatoryLabel: 'Authorised Signatory',
+  logoDataUrl: null,
+  signatureDataUrl: null
 });
+
+/** @deprecated Prefer tenant company settings via resolveInvoiceProfile */
+export const SRSB_INVOICE_PROFILE = DEFAULT_INVOICE_PROFILE;
+
+export function resolveInvoiceProfile(profile) {
+  return { ...DEFAULT_INVOICE_PROFILE, ...(profile || {}) };
+}
 
 const money = (value) => Number(value || 0).toLocaleString('en-IN', {
   minimumFractionDigits: 0,
@@ -82,12 +91,12 @@ function assetUrl(fileName) {
   }
 }
 
-function logoUrl() {
-  return assetUrl('company-logo.png');
+function logoUrl(profile) {
+  return profile?.logoDataUrl || assetUrl('company-logo.png');
 }
 
-function signatureUrl() {
-  return assetUrl('authorised-signature.png');
+function signatureUrl(profile) {
+  return profile?.signatureDataUrl || assetUrl('authorised-signature.png');
 }
 
 async function loadImageDataUrl(url) {
@@ -181,11 +190,12 @@ function candidateHtml(item, index, count) {
     </div>`;
 }
 
-export function invoiceHtml(invoice) {
+export function invoiceHtml(invoice, profileInput) {
+  const profile = resolveInvoiceProfile(profileInput);
   const items = invoice.items || [];
   const rows = taxRows(invoice);
-  const logo = logoUrl();
-  const signature = signatureUrl();
+  const logo = logoUrl(profile);
+  const signature = signatureUrl(profile);
   const address = clientAddress(invoice);
 
   return `<!doctype html>
@@ -237,12 +247,12 @@ export function invoiceHtml(invoice) {
   <body>
     <div class="invoice-page">
       <div class="company-header">
-        <div class="company-gst">GST NO: ${SRSB_INVOICE_PROFILE.gstNumber}</div>
-        <div class="company-logo">${logo ? `<img src="${escapeHtml(logo)}" alt="SRSB Logo" />` : ''}</div>
+        <div class="company-gst">GST NO: ${profile.gstNumber}</div>
+        <div class="company-logo">${logo ? `<img src="${escapeHtml(logo)}" alt="Company Logo" />` : ''}</div>
         <div class="company-details">
-          <h1>${SRSB_INVOICE_PROFILE.legalName}</h1>
-          <p>${SRSB_INVOICE_PROFILE.registeredAddress}</p>
-          <p>E: ${SRSB_INVOICE_PROFILE.email}, M: ${SRSB_INVOICE_PROFILE.phone}</p>
+          <h1>${profile.legalName}</h1>
+          <p>${profile.registeredAddress}</p>
+          <p>E: ${profile.email}, M: ${profile.phone}</p>
         </div>
       </div>
 
@@ -253,12 +263,12 @@ export function invoiceHtml(invoice) {
         <div class="invoice-box">
           <p><b>Invoice No</b><span>:</span><span>${escapeHtml(invoice.invoice_number || 'â€”')}</span></p>
           <p><b>Date</b><span>:</span><span>${escapeHtml(date(invoice.invoice_date))}</span></p>
-          <p><b>SAC</b><span>:</span><span>${SRSB_INVOICE_PROFILE.sacCode}</span></p>
-          <p><b>State Code</b><span>:</span><span>${SRSB_INVOICE_PROFILE.stateCode}</span></p>
+          <p><b>SAC</b><span>:</span><span>${profile.sacCode}</span></p>
+          <p><b>State Code</b><span>:</span><span>${profile.stateCode}</span></p>
         </div>
       </div>
 
-      <div class="description">${SRSB_INVOICE_PROFILE.recruitmentDescription}</div>
+      <div class="description">${profile.recruitmentDescription}</div>
       ${items.length ? items.map((item, index) => candidateHtml(item, index, items.length)).join('') : '<div class="candidate-block">No candidate selected.</div>'}
       <div class="tax-title">TAX INVOICE</div>
       <table class="tax-table">
@@ -272,14 +282,16 @@ export function invoiceHtml(invoice) {
       <div class="footer-grid">
         <div class="bank">
           <h3>Bank Details</h3>
-          <p><b>Account Name</b><span>:</span><span>${SRSB_INVOICE_PROFILE.bankAccountName}</span></p>
-          <p><b>Account No</b><span>:</span><span>${SRSB_INVOICE_PROFILE.bankAccountNumber}</span></p>
-          <p><b>IFSC Code</b><span>:</span><span>${SRSB_INVOICE_PROFILE.bankIfsc}</span></p>
-          <p><b>Branch</b><span>:</span><span>${SRSB_INVOICE_PROFILE.bankBranch}</span></p>
-          <p><b>Bank Name</b><span>:</span><span>${SRSB_INVOICE_PROFILE.bankName}</span></p>
+          <p><b>Account Name</b><span>:</span><span>${profile.bankAccountName}</span></p>
+          <p><b>Account No</b><span>:</span><span>${profile.bankAccountNumber}</span></p>
+          <p><b>IFSC Code</b><span>:</span><span>${profile.bankIfsc}</span></p>
+          <p><b>Branch</b><span>:</span><span>${profile.bankBranch}</span></p>
+          <p><b>Bank Name</b><span>:</span><span>${profile.bankName}</span></p>
         </div>
         <div class="signature">
-          ${signature ? `<img src="${escapeHtml(signature)}" alt="SRSB authorised seal and signature" />` : ''}
+          ${signature
+            ? `<img src="${escapeHtml(signature)}" alt="Authorised seal and signature" />`
+            : `<h3>For, ${escapeHtml(profile.legalName)}</h3><div class="signature-label">${escapeHtml(profile.signatoryLabel)}</div>`}
         </div>
       </div>
     </div>
@@ -287,7 +299,7 @@ export function invoiceHtml(invoice) {
   </html>`;
 }
 
-export function printInvoice(invoice) {
+export function printInvoice(invoice, profileInput) {
   const frame = document.createElement('iframe');
   frame.className = 'invoice-print-frame';
   frame.setAttribute('aria-hidden', 'true');
@@ -308,7 +320,7 @@ export function printInvoice(invoice) {
       }
     }, 400);
   };
-  frame.srcdoc = invoiceHtml(invoice);
+  frame.srcdoc = invoiceHtml(invoice, profileInput);
   document.body.appendChild(frame);
 }
 
@@ -319,14 +331,15 @@ function drawTextPair(doc, label, value, x, y, labelWidth = 34) {
   doc.text(String(value || 'â€”'), x + labelWidth, y);
 }
 
-export async function downloadInvoicePdf(invoice) {
+export async function downloadInvoicePdf(invoice, profileInput) {
+  const profile = resolveInvoiceProfile(profileInput);
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const left = 10;
   const width = pageWidth - 20;
-  const logoData = await loadImageDataUrl(logoUrl());
-  const signatureData = await loadImageDataUrl(signatureUrl());
+  const logoData = await loadImageDataUrl(logoUrl(profile));
+  const signatureData = await loadImageDataUrl(signatureUrl(profile));
   let y = 10;
 
   doc.setDrawColor(0);
@@ -339,12 +352,12 @@ export async function downloadInvoicePdf(invoice) {
   if (logoData) doc.addImage(logoData, 'PNG', left + 4, y + 7, 40, 16);
   doc.setFont('times', 'bold');
   doc.setFontSize(8.5);
-  doc.text(`GST NO: ${SRSB_INVOICE_PROFILE.gstNumber}`, left + width - 2, y + 4, { align: 'right' });
+  doc.text(`GST NO: ${profile.gstNumber}`, left + width - 2, y + 4, { align: 'right' });
   doc.setFontSize(14);
-  doc.text(SRSB_INVOICE_PROFILE.legalName, left + 119, y + 13, { align: 'center' });
+  doc.text(profile.legalName, left + 119, y + 13, { align: 'center' });
   doc.setFontSize(8.5);
-  doc.text(SRSB_INVOICE_PROFILE.registeredAddress, left + 119, y + 19, { align: 'center', maxWidth: 132 });
-  doc.text(`E: ${SRSB_INVOICE_PROFILE.email}, M: ${SRSB_INVOICE_PROFILE.phone}`, left + 119, y + 25, { align: 'center', maxWidth: 132 });
+  doc.text(profile.registeredAddress, left + 119, y + 19, { align: 'center', maxWidth: 132 });
+  doc.text(`E: ${profile.email}, M: ${profile.phone}`, left + 119, y + 25, { align: 'center', maxWidth: 132 });
   y += headerHeight;
 
   const clientHeight = 36;
@@ -361,13 +374,13 @@ export async function downloadInvoicePdf(invoice) {
   doc.text(`GST No: ${invoice.client_gst_number || 'â€”'}`, left + 14, y + 29);
   drawTextPair(doc, 'Invoice No', invoice.invoice_number, left + 138, y + 8, 21);
   drawTextPair(doc, 'Date', date(invoice.invoice_date), left + 138, y + 15, 21);
-  drawTextPair(doc, 'SAC', SRSB_INVOICE_PROFILE.sacCode, left + 138, y + 22, 21);
-  drawTextPair(doc, 'State Code', SRSB_INVOICE_PROFILE.stateCode, left + 138, y + 29, 21);
+  drawTextPair(doc, 'SAC', profile.sacCode, left + 138, y + 22, 21);
+  drawTextPair(doc, 'State Code', profile.stateCode, left + 138, y + 29, 21);
   y += clientHeight;
 
   doc.rect(left, y, width, 11);
   doc.setFont('times', 'normal');
-  doc.text(SRSB_INVOICE_PROFILE.recruitmentDescription, left + 1, y + 7);
+  doc.text(profile.recruitmentDescription, left + 1, y + 7);
   y += 11;
 
   const items = invoice.items || [];
@@ -446,14 +459,27 @@ export async function downloadInvoicePdf(invoice) {
   doc.setFontSize(9);
   doc.text('Bank Details', left + 1, y + 5);
   doc.setFont('times', 'normal');
-  drawTextPair(doc, 'Account Name', SRSB_INVOICE_PROFILE.bankAccountName, left + 1, y + 11, 28);
-  drawTextPair(doc, 'Account No', SRSB_INVOICE_PROFILE.bankAccountNumber, left + 1, y + 17, 28);
-  drawTextPair(doc, 'IFSC Code', SRSB_INVOICE_PROFILE.bankIfsc, left + 1, y + 23, 28);
-  drawTextPair(doc, 'Branch', SRSB_INVOICE_PROFILE.bankBranch, left + 1, y + 29, 28);
-  drawTextPair(doc, 'Bank Name', SRSB_INVOICE_PROFILE.bankName, left + 1, y + 35, 28);
-  if (signatureData) doc.addImage(signatureData, 'PNG', left + 116, y + 2, 72, 33.4);
-
-  const fileName = `${invoice.invoice_number || 'SRSB-Invoice'}-${String(invoice.company_name || 'Client').replace(/[^a-z0-9]+/gi, '-')}.pdf`;
+  drawTextPair(doc, 'Account Name', profile.bankAccountName, left + 1, y + 11, 28);
+  drawTextPair(doc, 'Account No', profile.bankAccountNumber, left + 1, y + 17, 28);
+  drawTextPair(doc, 'IFSC Code', profile.bankIfsc, left + 1, y + 23, 28);
+  drawTextPair(doc, 'Branch', profile.bankBranch, left + 1, y + 29, 28);
+  drawTextPair(doc, 'Bank Name', profile.bankName, left + 1, y + 35, 28);
+  if (signatureData) {
+    // Prefer the seal/signature image sizing from the latest invoice layout.
+    doc.addImage(signatureData, 'PNG', left + 116, y + 2, 72, 33.4);
+  } else {
+    doc.setFont('times', 'bold');
+    doc.text(`For, ${profile.legalName}`, left + 152, y + 6, { align: 'center' });
+    doc.line(left + 114, y + 32, left + width, y + 32);
+    doc.text(profile.signatoryLabel, left + 152, y + 36.5, { align: 'center' });
+  }
+  const fallbackNumber =
+    invoice.invoice_number ||
+    `${String(profile.legalName || 'Invoice')
+      .replace(/[^a-z0-9]+/gi, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 24) || 'Invoice'}`;
+  const fileName = `${fallbackNumber}-${String(invoice.company_name || 'Client').replace(/[^a-z0-9]+/gi, '-')}.pdf`;
   doc.save(fileName);
 }
 

@@ -1,64 +1,89 @@
 import app from './app.js';
 import { env } from './config/env.js';
-import { pool, testDatabaseConnection } from './config/database.js';
+import {
+  getMasterPool,
+  getTenantPool,
+  testDatabaseConnection
+} from './config/database.js';
 import { startAttendanceScheduler } from './utils/attendanceScheduler.js';
-import { ensureV110Schema } from './migrations/ensureV110Schema.js';
-import { ensureV120Schema } from './migrations/ensureV120Schema.js';
+import { ensurePlatformSchema } from './migrations/ensurePlatformSchema.js';
+import { migrateTenantDatabase } from './services/tenantProvisioner.js';
 
-async function columnExists(columnName) {
-  const [rows] = await pool.query(
-    `SELECT 1 FROM information_schema.COLUMNS
-      WHERE TABLE_SCHEMA=? AND TABLE_NAME='employees' AND COLUMN_NAME=? LIMIT 1`,
-    [env.dbName, columnName]
+/**
+ * Seed company_settings for the legacy default tenant from invoice_settings
+ * when the row does not exist yet. Additive only.
+ */
+async function ensureDefaultCompanySettings(pool) {
+  const [existing] = await pool.query(
+    'SELECT id FROM company_settings WHERE id = 1 LIMIT 1'
   );
-  return rows.length > 0;
-}
-
-async function ensureSecuritySchema() {
-  await pool.query('ALTER TABLE employees MODIFY employee_id VARCHAR(30) NULL');
-  if (!(await columnExists('username'))) {
-    await pool.query('ALTER TABLE employees ADD COLUMN username VARCHAR(80) NULL UNIQUE AFTER employee_id');
-  }
-  if (!(await columnExists('recovery_email'))) {
-    await pool.query('ALTER TABLE employees ADD COLUMN recovery_email VARCHAR(160) NULL AFTER email');
+  if (existing.length > 0) {
+    return;
   }
 
-  await pool.query(`CREATE TABLE IF NOT EXISTS password_reset_otps (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    employee_id INT NOT NULL,
-    otp_hash VARCHAR(255) NOT NULL,
-    expires_at DATETIME NOT NULL,
-    used_at DATETIME NULL,
-    attempts INT NOT NULL DEFAULT 0,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_password_reset_employee (employee_id),
-    INDEX idx_password_reset_expiry (expires_at),
-    CONSTRAINT fk_password_reset_employee FOREIGN KEY (employee_id)
-      REFERENCES employees(id) ON DELETE CASCADE
-  )`);
+  const [invoiceRows] = await pool.query(
+    'SELECT * FROM invoice_settings WHERE id = 1 LIMIT 1'
+  );
+  const invoice = invoiceRows[0];
 
-  await pool.query(`CREATE TABLE IF NOT EXISTS password_reset_requests (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    employee_id INT NOT NULL UNIQUE,
-    status ENUM('PENDING','RESOLVED','REJECTED') NOT NULL DEFAULT 'PENDING',
-    requested_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    resolved_at TIMESTAMP NULL,
-    resolved_by INT NULL,
-    CONSTRAINT fk_password_reset_request_employee FOREIGN KEY (employee_id)
-      REFERENCES employees(id) ON DELETE CASCADE,
-    CONSTRAINT fk_password_reset_request_admin FOREIGN KEY (resolved_by)
-      REFERENCES employees(id) ON DELETE SET NULL
-  )`);
+  if (invoice) {
+    await pool.query(
+      `INSERT INTO company_settings (
+         id, legal_name, display_name, address, phone, email, gst_number,
+         bank_account_name, bank_account_number, bank_ifsc, bank_name, bank_branch,
+         sac_code, authorised_signatory, invoice_prefix
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        1,
+        invoice.legal_name,
+        env.defaultCompanyName,
+        invoice.registered_address,
+        invoice.phone,
+        invoice.email,
+        invoice.gst_number,
+        invoice.bank_account_name,
+        invoice.bank_account_number,
+        invoice.bank_ifsc,
+        invoice.bank_name,
+        invoice.bank_branch,
+        invoice.default_sac_code || '998616',
+        invoice.authorised_signatory,
+        invoice.invoice_prefix || 'SRSB'
+      ]
+    );
+    return;
+  }
+
+  await pool.query(
+    `INSERT INTO company_settings (
+       id, legal_name, display_name, address, phone, email, gst_number,
+       sac_code, invoice_prefix
+     ) VALUES (1, ?, ?, NULL, NULL, NULL, NULL, '998616', 'SRSB')`,
+    [env.defaultCompanyName, env.defaultCompanyName]
+  );
 }
 
 async function start() {
   try {
-    await testDatabaseConnection();
-    await ensureSecuritySchema();
-    await ensureV110Schema();
-    await ensureV120Schema();
+    // 1) Platform registry (master DB)
+    await ensurePlatformSchema();
+    await testDatabaseConnection(getMasterPool());
+
+    // 2) Default / legacy tenant (current DB_NAME, e.g. srsb_hrms)
+    const defaultPool = getTenantPool(env.dbName);
+    await testDatabaseConnection(defaultPool);
+    await migrateTenantDatabase(env.dbName, {
+      forceSrsbInvoiceProfile: true
+    });
+    await ensureDefaultCompanySettings(defaultPool);
+
     app.listen(env.port, '0.0.0.0', () => {
-      console.log(`SRSB Work Management API running at http://localhost:${env.port}`);
+      console.log(
+        `SRSB Work Management API running at http://localhost:${env.port}`
+      );
+      console.log(
+        `Master DB: ${env.masterDbName} | Default tenant DB: ${env.dbName}`
+      );
       startAttendanceScheduler();
     });
   } catch (error) {
@@ -66,6 +91,11 @@ async function start() {
     process.exit(1);
   }
 }
-process.on('unhandledRejection', reason => console.error('Unhandled promise rejection:', reason));
-process.on('uncaughtException', error => console.error('Uncaught exception:', error));
+
+process.on('unhandledRejection', (reason) =>
+  console.error('Unhandled promise rejection:', reason)
+);
+process.on('uncaughtException', (error) =>
+  console.error('Uncaught exception:', error)
+);
 start();

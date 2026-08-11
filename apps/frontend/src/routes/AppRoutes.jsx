@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import Login from '../pages/Login.jsx';
+import SetupWizard from '../pages/SetupWizard.jsx';
 import ProtectedRoute from '../components/ProtectedRoute.jsx';
 import AppLayout from '../layouts/AppLayout.jsx';
 import AdminDashboard from '../pages/admin/AdminDashboard.jsx';
@@ -31,6 +32,15 @@ const adminRoles = [
   'MANAGER'
 ];
 
+function getUnauthenticatedHome() {
+  // First-run EXE/web: no local company context yet → setup wizard.
+  // After setup or a successful login, company code is stored and login opens.
+  const hasCompany = Boolean(
+    localStorage.getItem('srsb_company_code')
+  );
+  return hasCompany ? '/login' : '/setup';
+}
+
 export default function AppRoutes() {
   const { user } = useAuth();
 
@@ -38,7 +48,7 @@ export default function AppRoutes() {
     ? adminRoles.includes(user.role)
       ? '/admin'
       : '/employee'
-    : '/login';
+    : getUnauthenticatedHome();
 
   return (
     <Routes>
@@ -49,6 +59,17 @@ export default function AppRoutes() {
             <Navigate to={home} replace />
           ) : (
             <Login />
+          )
+        }
+      />
+
+      <Route
+        path="/setup"
+        element={
+          user ? (
+            <Navigate to={home} replace />
+          ) : (
+            <SetupWizard />
           )
         }
       />

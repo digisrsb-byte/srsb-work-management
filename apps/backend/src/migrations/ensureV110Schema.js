@@ -1,44 +1,53 @@
-import { pool } from '../config/database.js';
+import { pool as defaultPool } from '../config/database.js';
 import { env } from '../config/env.js';
 
-async function columnExists(tableName, columnName) {
-  const [rows] = await pool.query(
-    `SELECT 1
-     FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = ?
-       AND TABLE_NAME = ?
-       AND COLUMN_NAME = ?
-     LIMIT 1`,
-    [env.dbName, tableName, columnName]
-  );
-
-  return rows.length > 0;
+function resolveOptions(options = {}) {
+  return {
+    pool: options.pool || defaultPool,
+    dbName: options.dbName || env.dbName
+  };
 }
 
-async function addColumn(tableName, columnName, definition) {
-  if (!(await columnExists(tableName, columnName))) {
-    await pool.query(
-      `ALTER TABLE \`${tableName}\`
-       ADD COLUMN \`${columnName}\` ${definition}`
+export async function ensureV110Schema(options = {}) {
+  const { pool, dbName } = resolveOptions(options);
+
+  async function columnExists(tableName, columnName) {
+    const [rows] = await pool.query(
+      `SELECT 1
+       FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = ?
+         AND TABLE_NAME = ?
+         AND COLUMN_NAME = ?
+       LIMIT 1`,
+      [dbName, tableName, columnName]
     );
+
+    return rows.length > 0;
   }
-}
 
-async function indexExists(tableName, indexName) {
-  const [rows] = await pool.query(
-    `SELECT 1
-     FROM information_schema.STATISTICS
-     WHERE TABLE_SCHEMA = ?
-       AND TABLE_NAME = ?
-       AND INDEX_NAME = ?
-     LIMIT 1`,
-    [env.dbName, tableName, indexName]
-  );
+  async function addColumn(tableName, columnName, definition) {
+    if (!(await columnExists(tableName, columnName))) {
+      await pool.query(
+        `ALTER TABLE \`${tableName}\`
+         ADD COLUMN \`${columnName}\` ${definition}`
+      );
+    }
+  }
 
-  return rows.length > 0;
-}
+  async function indexExists(tableName, indexName) {
+    const [rows] = await pool.query(
+      `SELECT 1
+       FROM information_schema.STATISTICS
+       WHERE TABLE_SCHEMA = ?
+         AND TABLE_NAME = ?
+         AND INDEX_NAME = ?
+       LIMIT 1`,
+      [dbName, tableName, indexName]
+    );
 
-export async function ensureV110Schema() {
+    return rows.length > 0;
+  }
+
   await addColumn('employees', 'account_type', "ENUM('EMPLOYEE','SYSTEM') NOT NULL DEFAULT 'EMPLOYEE' AFTER role");
   await addColumn('employees', 'date_of_birth', 'DATE NULL AFTER phone');
   await addColumn('employees', 'password_changed_at', 'DATETIME NULL AFTER must_change_password');
@@ -201,5 +210,5 @@ export async function ensureV110Schema() {
      )`
   );
 
-  console.log('Version 1.1.0 database schema is ready.');
+  console.log(`Version 1.1.0 database schema is ready (${dbName}).`);
 }

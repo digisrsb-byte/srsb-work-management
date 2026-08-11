@@ -22,6 +22,7 @@ import {
 
 import { useAuth } from '../context/AuthContext.jsx';
 import BrandLogo from '../components/BrandLogo.jsx';
+import { useCompany } from '../context/CompanyContext.jsx';
 
 import {
   adminNavigation,
@@ -62,6 +63,7 @@ export default function AppLayout({ mode }) {
   const notificationRef = useRef(null);
 
   const { user, logout } = useAuth();
+  const { settings: companySettings } = useCompany();
 
   const filteredAdminNavigation = adminNavigation.map((group) => ({
     ...group,
@@ -453,7 +455,10 @@ export default function AppLayout({ mode }) {
           open ? 'open' : ''
         }`}
       >
-        <BrandLogo />
+        <BrandLogo
+          name={companySettings?.displayName || 'Work Management'}
+          logoUrl={companySettings?.logoDataUrl || undefined}
+        />
 
         <div className="nav-section">
           {navigation.map((group) => (

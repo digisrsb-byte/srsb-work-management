@@ -22,7 +22,21 @@ export const env = {
   dbPort: Number(process.env.DB_PORT || 3306),
   dbUser: process.env.DB_USER || '',
   dbPassword: process.env.DB_PASSWORD || '',
+  // Default / legacy tenant database (existing SRSB production DB).
   dbName: process.env.DB_NAME || 'srsb_hrms',
+  // Platform registry database (companies, activation codes).
+  masterDbName:
+    process.env.MASTER_DB_NAME ||
+    process.env.PLATFORM_DB_NAME ||
+    'srsb_platform',
+  defaultCompanyCode: String(
+    process.env.DEFAULT_COMPANY_CODE || 'SRSB'
+  )
+    .trim()
+    .toUpperCase(),
+  defaultCompanyName:
+    process.env.DEFAULT_COMPANY_NAME ||
+    'SRSB Workforce Solutions',
 
   jwtSecret:
     process.env.JWT_SECRET ||
@@ -82,5 +96,10 @@ export const env = {
     )
   ),
   publicApiUrl:
-    process.env.PUBLIC_API_URL || ''
+    process.env.PUBLIC_API_URL || '',
+
+  // Platform ops (create codes / list / suspend). Empty disables HTTP platform routes.
+  platformAdminKey: String(
+    process.env.PLATFORM_ADMIN_KEY || ''
+  ).trim()
 };

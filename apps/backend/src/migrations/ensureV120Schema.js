@@ -1,53 +1,72 @@
-import { pool } from '../config/database.js';
+import { pool as defaultPool } from '../config/database.js';
 import { env } from '../config/env.js';
 
-async function columnExists(tableName, columnName) {
-  const [rows] = await pool.query(
-    `SELECT 1
-     FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?
-     LIMIT 1`,
-    [env.dbName, tableName, columnName]
-  );
-  return rows.length > 0;
+function resolveOptions(options = {}) {
+  return {
+    pool: options.pool || defaultPool,
+    dbName: options.dbName || env.dbName,
+    // Only force the hard-coded SRSB invoice profile onto the legacy default DB.
+    forceSrsbInvoiceProfile:
+      options.forceSrsbInvoiceProfile ??
+      (options.dbName
+        ? options.dbName === env.dbName
+        : true)
+  };
 }
 
+export async function ensureV120Schema(options = {}) {
+  const { pool, dbName, forceSrsbInvoiceProfile } =
+    resolveOptions(options);
 
-async function getColumnDefinition(tableName, columnName) {
-  const [rows] = await pool.query(
-    `SELECT COLUMN_TYPE AS columnType, COLUMN_DEFAULT AS columnDefault
-     FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?
-     LIMIT 1`,
-    [env.dbName, tableName, columnName]
-  );
-  return rows[0] || null;
-}
-
-async function addColumn(tableName, columnName, definition) {
-  if (!(await columnExists(tableName, columnName))) {
-    await pool.query(`ALTER TABLE \`${tableName}\` ADD COLUMN \`${columnName}\` ${definition}`);
+  async function columnExists(tableName, columnName) {
+    const [rows] = await pool.query(
+      `SELECT 1
+       FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?
+       LIMIT 1`,
+      [dbName, tableName, columnName]
+    );
+    return rows.length > 0;
   }
-}
 
-async function indexExists(tableName, indexName) {
-  const [rows] = await pool.query(
-    `SELECT 1
-     FROM information_schema.STATISTICS
-     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ?
-     LIMIT 1`,
-    [env.dbName, tableName, indexName]
-  );
-  return rows.length > 0;
-}
-
-async function addIndex(tableName, indexName, columnsSql) {
-  if (!(await indexExists(tableName, indexName))) {
-    await pool.query(`CREATE INDEX \`${indexName}\` ON \`${tableName}\` (${columnsSql})`);
+  async function getColumnDefinition(tableName, columnName) {
+    const [rows] = await pool.query(
+      `SELECT COLUMN_TYPE AS columnType, COLUMN_DEFAULT AS columnDefault
+       FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?
+       LIMIT 1`,
+      [dbName, tableName, columnName]
+    );
+    return rows[0] || null;
   }
-}
 
-export async function ensureV120Schema() {
+  async function addColumn(tableName, columnName, definition) {
+    if (!(await columnExists(tableName, columnName))) {
+      await pool.query(
+        `ALTER TABLE \`${tableName}\` ADD COLUMN \`${columnName}\` ${definition}`
+      );
+    }
+  }
+
+  async function indexExists(tableName, indexName) {
+    const [rows] = await pool.query(
+      `SELECT 1
+       FROM information_schema.STATISTICS
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ?
+       LIMIT 1`,
+      [dbName, tableName, indexName]
+    );
+    return rows.length > 0;
+  }
+
+  async function addIndex(tableName, indexName, columnsSql) {
+    if (!(await indexExists(tableName, indexName))) {
+      await pool.query(
+        `CREATE INDEX \`${indexName}\` ON \`${tableName}\` (${columnsSql})`
+      );
+    }
+  }
+
   // Client billing metadata.
   await addColumn('clients', 'state_code', 'VARCHAR(8) NULL');
 
@@ -152,56 +171,56 @@ export async function ensureV120Schema() {
      )`
   );
 
-  await pool.query(
-    `INSERT IGNORE INTO invoice_settings (
-       id, legal_name, gst_number, registered_address, email, phone,
-       default_sac_code, default_cgst_rate, default_sgst_rate, default_igst_rate,
-       bank_account_name, bank_account_number, bank_ifsc, bank_name, bank_branch,
-       authorised_signatory, invoice_prefix
-     ) VALUES (
-       1,
-       'SRSB WORKFORCE SOLUTIONS PVT LTD',
-       '29ABQCS9374K1Z6',
-       'No. 228/B, 55th Cross, 3rd Block, Rajajinagar, Bangalore - 560010',
-       'srsbhrsolutions25@gmail.com',
-       '8317406575 / 8660666087',
-       '998616',
-       9,
-       9,
-       18,
-       'SRSB WORKFORCE SOLUTIONS PVT LTD',
-       '13340200111222',
-       'FDRL0001334',
-       'Federal Bank',
-       'Rajajinagar',
-       'Authorised Signatory',
-       'SRSB'
-     )`
-  );
+  if (forceSrsbInvoiceProfile) {
+    await pool.query(
+      `INSERT IGNORE INTO invoice_settings (
+         id, legal_name, gst_number, registered_address, email, phone,
+         default_sac_code, default_cgst_rate, default_sgst_rate, default_igst_rate,
+         bank_account_name, bank_account_number, bank_ifsc, bank_name, bank_branch,
+         authorised_signatory, invoice_prefix
+       ) VALUES (
+         1,
+         'SRSB WORKFORCE SOLUTIONS PVT LTD',
+         '29ABQCS9374K1Z6',
+         'No. 228/B, 55th Cross, 3rd Block, Rajajinagar, Bangalore - 560010',
+         'srsbhrsolutions25@gmail.com',
+         '8317406575 / 8660666087',
+         '998616',
+         9,
+         9,
+         18,
+         'SRSB WORKFORCE SOLUTIONS PVT LTD',
+         '13340200111222',
+         'FDRL0001334',
+         'Federal Bank',
+         'Rajajinagar',
+         'Authorised Signatory',
+         'SRSB'
+       )`
+    );
 
-  // The recruitment invoice header, GST, SAC, bank and signatory labels are
-  // company-wide fixed values. Keep existing Railway data aligned with the
-  // approved SRSB invoice format on every deployment.
-  await pool.query(
-    `UPDATE invoice_settings SET
-       legal_name = 'SRSB WORKFORCE SOLUTIONS PVT LTD',
-       gst_number = '29ABQCS9374K1Z6',
-       registered_address = 'No. 228/B, 55th Cross, 3rd Block, Rajajinagar, Bangalore - 560010',
-       email = 'srsbhrsolutions25@gmail.com',
-       phone = '8317406575 / 8660666087',
-       default_sac_code = '998616',
-       default_cgst_rate = 9,
-       default_sgst_rate = 9,
-       default_igst_rate = 18,
-       bank_account_name = 'SRSB WORKFORCE SOLUTIONS PVT LTD',
-       bank_account_number = '13340200111222',
-       bank_ifsc = 'FDRL0001334',
-       bank_name = 'Federal Bank',
-       bank_branch = 'Rajajinagar',
-       authorised_signatory = 'Authorised Signatory',
-       invoice_prefix = 'SRSB'
-     WHERE id = 1`
-  );
+    // Keep the legacy default tenant aligned with the approved SRSB invoice format.
+    await pool.query(
+      `UPDATE invoice_settings SET
+         legal_name = 'SRSB WORKFORCE SOLUTIONS PVT LTD',
+         gst_number = '29ABQCS9374K1Z6',
+         registered_address = 'No. 228/B, 55th Cross, 3rd Block, Rajajinagar, Bangalore - 560010',
+         email = 'srsbhrsolutions25@gmail.com',
+         phone = '8317406575 / 8660666087',
+         default_sac_code = '998616',
+         default_cgst_rate = 9,
+         default_sgst_rate = 9,
+         default_igst_rate = 18,
+         bank_account_name = 'SRSB WORKFORCE SOLUTIONS PVT LTD',
+         bank_account_number = '13340200111222',
+         bank_ifsc = 'FDRL0001334',
+         bank_name = 'Federal Bank',
+         bank_branch = 'Rajajinagar',
+         authorised_signatory = 'Authorised Signatory',
+         invoice_prefix = 'SRSB'
+       WHERE id = 1`
+    );
+  }
 
   // Holiday calendar greetings.
   await addColumn('holidays', 'show_greeting', 'BOOLEAN NOT NULL DEFAULT TRUE');
@@ -218,7 +237,9 @@ export async function ensureV120Schema() {
   // Task editing, extension requests, history and attachments.
   const taskStatusDefinition = await getColumnDefinition('tasks', 'status');
   if (!taskStatusDefinition) {
-    throw new Error('The tasks.status column is missing. Apply the earlier database schema first.');
+    throw new Error(
+      `The tasks.status column is missing in ${dbName}. Apply the base tenant schema first.`
+    );
   }
   if (String(taskStatusDefinition.columnType).includes("'TODO'")) {
     await pool.query(
@@ -226,7 +247,9 @@ export async function ensureV120Schema() {
        MODIFY status ENUM('TODO','PENDING','IN_PROGRESS','BLOCKED','COMPLETED','CANCELLED')
        NOT NULL DEFAULT 'PENDING'`
     );
-    await pool.query(`UPDATE tasks SET status = 'PENDING' WHERE status = 'TODO'`);
+    await pool.query(
+      `UPDATE tasks SET status = 'PENDING' WHERE status = 'TODO'`
+    );
     await pool.query(
       `ALTER TABLE tasks
        MODIFY status ENUM('PENDING','IN_PROGRESS','BLOCKED','COMPLETED','CANCELLED')
@@ -300,5 +323,5 @@ export async function ensureV120Schema() {
     `JSON NULL COMMENT 'Persisted notification preference toggles'`
   );
 
-  console.log('Version 1.2.0 database schema is ready.');
+  console.log(`Version 1.2.0 database schema is ready (${dbName}).`);
 }

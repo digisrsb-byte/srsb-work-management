@@ -7,6 +7,11 @@ import {
 import api from '../services/api.js';
 
 const AuthContext = createContext(null);
+const COMPANY_CODE_KEY = 'srsb_company_code';
+
+function readStoredCompanyCode() {
+  return localStorage.getItem(COMPANY_CODE_KEY) || '';
+}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
@@ -14,22 +19,36 @@ export function AuthProvider({ children }) {
     return saved ? JSON.parse(saved) : null;
   });
 
-  async function login(loginId, password) {
+  async function login(loginId, password, companyCode) {
+    const normalizedCode = String(companyCode || '')
+      .trim()
+      .toUpperCase();
+
     const response = await api.post('/auth/login', {
       loginId,
-      password
+      password,
+      companyCode: normalizedCode || undefined
     });
 
     const {
       token,
-      user: loggedUser
+      user: loggedUser,
+      company
     } = response.data.data;
+
+    const resolvedCode =
+      company?.code ||
+      loggedUser?.companyCode ||
+      normalizedCode;
 
     localStorage.setItem('srsb_token', token);
     localStorage.setItem(
       'srsb_user',
       JSON.stringify(loggedUser)
     );
+    if (resolvedCode) {
+      localStorage.setItem(COMPANY_CODE_KEY, resolvedCode);
+    }
 
     setUser(loggedUser);
     return loggedUser;
@@ -54,6 +73,7 @@ export function AuthProvider({ children }) {
   function logout() {
     localStorage.removeItem('srsb_token');
     localStorage.removeItem('srsb_user');
+    // Keep company code so the next login is prefilled.
     setUser(null);
   }
 
@@ -62,7 +82,8 @@ export function AuthProvider({ children }) {
       user,
       login,
       logout,
-      updateUser
+      updateUser,
+      storedCompanyCode: readStoredCompanyCode()
     }),
     [user]
   );

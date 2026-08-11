@@ -16,6 +16,11 @@ const router = Router();
 router.post(
   '/login',
   [
+    body('companyCode')
+      .optional({ nullable: true })
+      .trim()
+      .isLength({ max: 40 })
+      .withMessage('Company code is too long.'),
     body('loginId')
       .trim()
       .notEmpty()
@@ -31,6 +36,11 @@ router.post(
 router.post(
   '/forgot-password',
   [
+    body('companyCode')
+      .optional({ nullable: true })
+      .trim()
+      .isLength({ max: 40 })
+      .withMessage('Company code is too long.'),
     body('identifier')
       .trim()
       .notEmpty()
@@ -43,6 +53,11 @@ router.post(
 router.post(
   '/reset-privileged-password',
   [
+    body('companyCode')
+      .optional({ nullable: true })
+      .trim()
+      .isLength({ max: 40 })
+      .withMessage('Company code is too long.'),
     body('identifier')
       .trim()
       .isEmail()

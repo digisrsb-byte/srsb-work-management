@@ -35,6 +35,8 @@ const authLimiter = rateLimit({
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/forgot-password', authLimiter);
 app.use('/api/auth/reset-privileged-password', authLimiter);
+app.use('/api/onboarding/validate-activation', authLimiter);
+app.use('/api/onboarding/register-company', authLimiter);
 
 app.get('/api/health', (req, res) => {
   res.json({ success: true, message: 'SRSB Work Management API is healthy.' });

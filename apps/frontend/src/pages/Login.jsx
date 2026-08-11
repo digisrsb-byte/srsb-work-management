@@ -1,4 +1,6 @@
 import {
+  useEffect,
+  useMemo,
   useState
 } from 'react';
 import {
@@ -8,7 +10,12 @@ import {
   MailCheck,
   ShieldCheck
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useSearchParams
+} from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import BrandLogo from '../components/BrandLogo.jsx';
 import api from '../services/api.js';
@@ -20,8 +27,24 @@ const managementRoles = [
   'MANAGER'
 ];
 
+function readInitialCompanyCode(searchParams) {
+  const fromQuery =
+    searchParams.get('companyCode') ||
+    searchParams.get('code') ||
+    '';
+  if (fromQuery.trim()) {
+    return fromQuery.trim().toUpperCase();
+  }
+  const stored = localStorage.getItem('srsb_company_code');
+  return stored ? stored.toUpperCase() : '';
+}
+
 export default function Login() {
+  const [searchParams] = useSearchParams();
   const [mode, setMode] = useState('login');
+  const [companyCode, setCompanyCode] = useState(() =>
+    readInitialCompanyCode(searchParams)
+  );
   const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -34,6 +57,81 @@ export default function Login() {
 
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [branding, setBranding] = useState({
+    displayName: 'Work Management',
+    logoDataUrl: null
+  });
+
+  useEffect(() => {
+    if (location.state?.setupMessage) {
+      setMessage(location.state.setupMessage);
+    }
+  }, [location.state]);
+
+  useEffect(() => {
+    const code = companyCode.trim();
+    if (!code) {
+      setBranding({
+        displayName: 'Work Management',
+        logoDataUrl: null
+      });
+      return undefined;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      Promise.all([
+        api.get('/company/branding', {
+          params: { companyCode: code }
+        }),
+        api.get('/onboarding/status', {
+          params: { companyCode: code }
+        })
+      ])
+        .then(([brandingResponse, statusResponse]) => {
+          if (cancelled) return;
+          const data = brandingResponse.data.data || {};
+          setBranding({
+            displayName: data.displayName || 'Work Management',
+            logoDataUrl: data.logoDataUrl || null
+          });
+
+          const status = statusResponse.data.data || {};
+          if (status.message && status.canLogin === false) {
+            setError(status.message);
+          } else if (
+            status.message &&
+            status.requiresSetup &&
+            !location.state?.setupMessage
+          ) {
+            setError('');
+            setMessage(status.message);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setBranding({
+              displayName: 'Work Management',
+              logoDataUrl: null
+            });
+          }
+        });
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [companyCode, location.state?.setupMessage]);
+
+  const sessionMessage = useMemo(() => {
+    const value = sessionStorage.getItem('srsb_session_message');
+    if (value) {
+      sessionStorage.removeItem('srsb_session_message');
+    }
+    return value || '';
+  }, []);
 
   const clearFeedback = () => {
     setError('');
@@ -59,7 +157,8 @@ export default function Login() {
 
       const user = await login(
         loginId.trim(),
-        password
+        password,
+        companyCode.trim()
       );
 
       navigate(
@@ -71,7 +170,7 @@ export default function Login() {
     } catch (err) {
       setError(
         err.response?.data?.message ||
-        'Unable to sign in. Check your credentials.'
+          'Unable to sign in. Check your credentials.'
       );
     } finally {
       setLoading(false);
@@ -88,14 +187,14 @@ export default function Login() {
       const response = await api.post(
         '/auth/forgot-password',
         {
-          identifier: loginId.trim()
+          identifier: loginId.trim(),
+          companyCode: companyCode.trim().toUpperCase()
         }
       );
 
       if (response.data.recoveryType === 'OTP') {
         setLoginId(
-          response.data.identifier ||
-          loginId.trim()
+          response.data.identifier || loginId.trim()
         );
         setMode('otp');
       }
@@ -104,7 +203,7 @@ export default function Login() {
     } catch (err) {
       setError(
         err.response?.data?.message ||
-        'Recovery request could not be completed.'
+          'Recovery request could not be completed.'
       );
     } finally {
       setLoading(false);
@@ -128,7 +227,8 @@ export default function Login() {
         {
           identifier: loginId.trim(),
           otp: otp.trim(),
-          newPassword
+          newPassword,
+          companyCode: companyCode.trim().toUpperCase()
         }
       );
 
@@ -137,7 +237,7 @@ export default function Login() {
     } catch (err) {
       setError(
         err.response?.data?.message ||
-        'OTP verification failed.'
+          'OTP verification failed.'
       );
     } finally {
       setLoading(false);
@@ -147,7 +247,10 @@ export default function Login() {
   return (
     <div className="login-page">
       <section className="login-brand-panel">
-        <BrandLogo />
+        <BrandLogo
+          name={branding.displayName}
+          logoUrl={branding.logoDataUrl || undefined}
+        />
 
         <div style={{ marginTop: 30 }}>
           <span className="badge badge-active">
@@ -155,13 +258,13 @@ export default function Login() {
           </span>
 
           <h1 style={{ marginTop: 16 }}>
-            SRSB Work Management
+            {branding.displayName}
           </h1>
 
           <p>
-            One secure workspace for employees,
-            attendance, recruitment, clients, tasks
-            and reports.
+            Sign in with your company code to access
+            employees, attendance, recruitment, clients,
+            tasks and reports.
           </p>
 
           <div className="login-feature-list">
@@ -172,7 +275,7 @@ export default function Login() {
 
             <div>
               <MailCheck size={18} />
-              Email-only Super Admin access
+              Isolated company workspace
             </div>
 
             <div>
@@ -192,20 +295,42 @@ export default function Login() {
             <h2>Welcome back</h2>
 
             <p>
-              Super Admin uses the authorised email.
-              Admin, Manager and employees may use their
-              Employee ID.
+              Enter your company code, then sign in with
+              your email or Employee ID.
             </p>
 
-            {error && (
+            {(error || sessionMessage) && (
               <div className="message message-error">
-                {error}
+                {error || sessionMessage}
               </div>
             )}
 
             {message && (
               <div className="message message-success">
                 {message}
+              </div>
+            )}
+
+            <div className="form-group">
+              <label>Company code</label>
+              <input
+                className="input"
+                value={companyCode}
+                onChange={(event) =>
+                  setCompanyCode(
+                    event.target.value.toUpperCase()
+                  )
+                }
+                placeholder="e.g. SRSB or ACME"
+                autoComplete="organization"
+                required
+              />
+            </div>
+
+            {!companyCode.trim() && (
+              <div className="message">
+                Enter your company code to load branding, or{' '}
+                <Link to="/setup">complete first-time setup</Link>.
               </div>
             )}
 
@@ -236,9 +361,7 @@ export default function Login() {
                 <input
                   className="input"
                   type={
-                    showPassword
-                      ? 'text'
-                      : 'password'
+                    showPassword ? 'text' : 'password'
                   }
                   value={password}
                   onChange={(event) =>
@@ -254,9 +377,7 @@ export default function Login() {
                   type="button"
                   className="password-eye"
                   onClick={() =>
-                    setShowPassword(
-                      (current) => !current
-                    )
+                    setShowPassword((current) => !current)
                   }
                 >
                   {showPassword ? (
@@ -289,10 +410,19 @@ export default function Login() {
               }}
               disabled={loading}
             >
-              {loading
-                ? 'Signing in...'
-                : 'Sign in securely'}
+              {loading ? 'Signing in...' : 'Sign in securely'}
             </button>
+
+            <p
+              style={{
+                marginTop: 18,
+                fontSize: 13,
+                textAlign: 'center'
+              }}
+            >
+              New company?{' '}
+              <Link to="/setup">Complete setup</Link>
+            </p>
           </form>
         )}
 
@@ -304,10 +434,10 @@ export default function Login() {
             <h2>Password recovery</h2>
 
             <p>
-              Super Admin: enter
-              info@srsbworkforcesolutions.com to receive
-              an OTP. Other users: enter the Employee ID
-              to send a reset request to Admin.
+              Enter your company code and account
+              identifier. Platform Super Admin OTP recovery
+              uses the authorised email on the default
+              company.
             </p>
 
             {error && (
@@ -321,6 +451,21 @@ export default function Login() {
                 {message}
               </div>
             )}
+
+            <div className="form-group">
+              <label>Company code</label>
+              <input
+                className="input"
+                value={companyCode}
+                onChange={(event) =>
+                  setCompanyCode(
+                    event.target.value.toUpperCase()
+                  )
+                }
+                placeholder="e.g. SRSB"
+                required
+              />
+            </div>
 
             <div className="form-group">
               <label>
@@ -346,9 +491,7 @@ export default function Login() {
               }}
               disabled={loading}
             >
-              {loading
-                ? 'Processing...'
-                : 'Continue'}
+              {loading ? 'Processing...' : 'Continue'}
             </button>
 
             <button
@@ -451,9 +594,7 @@ export default function Login() {
                 type="password"
                 value={confirmPassword}
                 onChange={(event) =>
-                  setConfirmPassword(
-                    event.target.value
-                  )
+                  setConfirmPassword(event.target.value)
                 }
                 minLength={8}
                 required
@@ -468,9 +609,7 @@ export default function Login() {
               }}
               disabled={loading}
             >
-              {loading
-                ? 'Resetting...'
-                : 'Reset password'}
+              {loading ? 'Resetting...' : 'Reset password'}
             </button>
 
             <button

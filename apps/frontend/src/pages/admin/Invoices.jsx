@@ -18,9 +18,9 @@ import useDebouncedValue from '../../hooks/useDebouncedValue.js';
 import {
   downloadInvoicePdf,
   invoiceHtml,
-  printInvoice,
-  SRSB_INVOICE_PROFILE
+  printInvoice
 } from '../../utils/invoicePdf.js';
+import { useCompany } from '../../context/CompanyContext.jsx';
 
 const emptyForm = {
   clientId: '',
@@ -76,6 +76,7 @@ function itemTaxable(item) {
 }
 
 export default function Invoices() {
+  const { invoiceProfile } = useCompany();
   const [invoices, setInvoices] = useState([]);
   const [reference, setReference] = useState({ nextInvoiceNumber: '' });
   const [clients, setClients] = useState([]);
@@ -270,7 +271,7 @@ export default function Invoices() {
       setError('');
       const payload = {
         ...form,
-        sacCode: SRSB_INVOICE_PROFILE.sacCode,
+        sacCode: invoiceProfile.sacCode,
         placeOfSupply: '',
         notes: '',
         items: form.items.map((item) => ({
@@ -308,7 +309,7 @@ export default function Invoices() {
 
   async function download(invoice) {
     try {
-      await downloadInvoicePdf(await loadDetail(invoice));
+      await downloadInvoicePdf(await loadDetail(invoice), invoiceProfile);
     } catch (requestError) {
       setError(requestError.response?.data?.message || 'Invoice PDF could not be downloaded.');
     }
@@ -316,7 +317,7 @@ export default function Invoices() {
 
   async function print(invoice) {
     try {
-      printInvoice(await loadDetail(invoice));
+      printInvoice(await loadDetail(invoice), invoiceProfile);
     } catch (requestError) {
       setError(requestError.response?.data?.message || 'Invoice could not be printed.');
     }
@@ -332,9 +333,9 @@ export default function Invoices() {
       address_line: client.address_line,
       city: client.city,
       state: client.state,
-      state_code: SRSB_INVOICE_PROFILE.stateCode,
+      state_code: invoiceProfile.stateCode,
       postal_code: client.postal_code,
-      sac_code: SRSB_INVOICE_PROFILE.sacCode,
+      sac_code: invoiceProfile.sacCode,
       gst_type: form.gstType,
       cgst_rate: Number(form.cgstRate || 0),
       sgst_rate: Number(form.sgstRate || 0),
@@ -358,7 +359,7 @@ export default function Invoices() {
 
   async function downloadPreview() {
     try {
-      await downloadInvoicePdf(preview);
+      await downloadInvoicePdf(preview, invoiceProfile);
     } catch {
       setError('Invoice PDF could not be downloaded.');
     }
@@ -413,7 +414,7 @@ export default function Invoices() {
           <p className="eyebrow">Recruitment Finance</p>
           <h1 className="page-title">Recruitment Invoices</h1>
           <p className="page-subtitle">
-            Create the SRSB tax-invoice format, preview it, download PDF and print it.
+            Create tax invoices, preview them, download PDF and print them.
           </p>
         </div>
         <button className="btn btn-primary" type="button" onClick={openCreate}>
@@ -436,7 +437,7 @@ export default function Invoices() {
             <div>
               <h2>{editing ? 'Edit Recruitment Invoice' : 'Create Recruitment Invoice'}</h2>
               <p className="page-subtitle">
-                SRSB company, GST, SAC, state code, bank and signature details are fixed automatically.
+                Company GST, SAC, state code, bank and signature details come from company settings.
               </p>
             </div>
             <button className="icon-btn" type="button" onClick={() => setShowForm(false)}>
@@ -445,10 +446,10 @@ export default function Invoices() {
           </div>
 
           <div className="invoice-fixed-details">
-            <div><span>SRSB GST</span><strong>{SRSB_INVOICE_PROFILE.gstNumber}</strong></div>
-            <div><span>SAC Code</span><strong>{SRSB_INVOICE_PROFILE.sacCode}</strong></div>
-            <div><span>State Code</span><strong>{SRSB_INVOICE_PROFILE.stateCode}</strong></div>
-            <div><span>Bank</span><strong>{SRSB_INVOICE_PROFILE.bankName}</strong></div>
+            <div><span>GST</span><strong>{invoiceProfile.gstNumber}</strong></div>
+            <div><span>SAC Code</span><strong>{invoiceProfile.sacCode}</strong></div>
+            <div><span>State Code</span><strong>{invoiceProfile.stateCode}</strong></div>
+            <div><span>Bank</span><strong>{invoiceProfile.bankName}</strong></div>
           </div>
 
           <div className="form-grid form-grid-3">
@@ -514,7 +515,7 @@ export default function Invoices() {
           </div>
 
           <div className="invoice-fixed-description">
-            {SRSB_INVOICE_PROFILE.recruitmentDescription}
+            {invoiceProfile.recruitmentDescription}
           </div>
 
           <div className="invoice-placement-picker">
@@ -645,7 +646,7 @@ export default function Invoices() {
             ) : (
               invoices.map((invoice) => (
                 <tr key={invoice.id}>
-                  <td><strong>{invoice.invoice_number}</strong><small>SAC {SRSB_INVOICE_PROFILE.sacCode}</small></td>
+                  <td><strong>{invoice.invoice_number}</strong><small>SAC {invoiceProfile.sacCode}</small></td>
                   <td><strong>{invoice.company_name}</strong><small>{invoice.candidate_names || 'No candidates'}</small></td>
                   <td>{dateOnly(invoice.invoice_date)}</td>
                   <td>{money(invoice.total_amount)}</td>
@@ -690,10 +691,10 @@ export default function Invoices() {
               </div>
               <button className="icon-btn" onClick={() => setPreview(null)}><X size={20} /></button>
             </div>
-            <iframe className="invoice-preview-frame" title="Invoice preview" srcDoc={invoiceHtml(preview)} />
+            <iframe className="invoice-preview-frame" title="Invoice preview" srcDoc={invoiceHtml(preview, invoiceProfile)} />
             <div className="form-actions">
               <button className="btn btn-primary" onClick={downloadPreview}><Download size={17} /> Download PDF</button>
-              <button className="btn btn-secondary" onClick={() => printInvoice(preview)}><Printer size={17} /> Print</button>
+              <button className="btn btn-secondary" onClick={() => printInvoice(preview, invoiceProfile)}><Printer size={17} /> Print</button>
             </div>
           </div>
         </div>
