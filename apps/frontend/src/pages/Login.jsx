@@ -71,7 +71,6 @@ export default function Login() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
-  const autoLoginAttempted = useMemo(() => ({ current: false }), []);
 
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -200,32 +199,6 @@ export default function Login() {
     );
     return user;
   }
-
-  // Auto sign-in once when saved credentials exist (EXE convenience).
-  useEffect(() => {
-    if (mode !== 'login') return;
-    if (autoLoginAttempted.current) return;
-    if (location.state?.setupMessage) return;
-    if (localStorage.getItem('srsb_token')) return;
-
-    const saved = getSavedLogin(companyCode);
-    if (!saved?.loginId || !saved?.password || !saved?.companyCode) {
-      return;
-    }
-
-    autoLoginAttempted.current = true;
-    clearFeedback();
-    setLoading(true);
-    performLogin(saved.loginId, saved.password, saved.companyCode)
-      .catch((err) => {
-        setError(
-          err.response?.data?.message ||
-            'Saved sign-in failed. Please enter your password.'
-        );
-      })
-      .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode]);
 
   async function submitLogin(event) {
     event.preventDefault();
@@ -474,7 +447,7 @@ export default function Login() {
                   className="settings-toggle"
                   style={{ marginTop: 12 }}
                 >
-                  <span>Remember company, email and password on this device</span>
+                  <span>Remember company, email and password on this device (fill only — click Sign in to log in)</span>
                   <input
                     type="checkbox"
                     checked={rememberMe}

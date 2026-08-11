@@ -32,13 +32,21 @@ const money = (value) => Number(value || 0).toLocaleString('en-IN', {
   maximumFractionDigits: 2
 });
 
-const date = (value) => value
-  ? new Date(value).toLocaleDateString('en-IN', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric'
-    })
-  : 'â€”';
+const date = (value) => {
+  if (!value) return '—';
+  const raw = String(value).trim();
+  // Prefer calendar date from YYYY-MM-DD to avoid timezone/line-break issues.
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    return `${match[3]}-${match[2]}-${match[1]}`;
+  }
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return raw;
+  const day = String(parsed.getDate()).padStart(2, '0');
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const year = parsed.getFullYear();
+  return `${day}-${month}-${year}`;
+};
 
 const ones = ['', 'One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
 const tens = ['', '', 'Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
@@ -215,12 +223,13 @@ export function invoiceHtml(invoice, profileInput) {
       .company-details h1{margin:0 0 2mm;font-size:16px}
       .company-details p{margin:1mm 0;font-weight:600}
       .company-gst{position:absolute;right:2mm;top:1.5mm;font-weight:700}
-      .client-invoice{display:grid;grid-template-columns:1fr 54mm;min-height:42mm;border-bottom:1px solid #000}
-      .client-box,.invoice-box{padding:4mm}
+      .client-invoice{display:grid;grid-template-columns:1fr 58mm;min-height:38mm;border-bottom:1px solid #000}
+      .client-box,.invoice-box{padding:3mm}
       .invoice-box{border-left:1px solid #000}
       .client-box .to-line{display:grid;grid-template-columns:12mm 1fr;gap:1mm}
-      .client-box p,.invoice-box p{margin:1.5mm 0;line-height:1.35}
-      .invoice-box p{display:grid;grid-template-columns:20mm 3mm 1fr}
+      .client-box p,.invoice-box p{margin:1.2mm 0;line-height:1.25;font-size:10px}
+      .invoice-box p{display:grid;grid-template-columns:18mm 2.5mm 1fr;align-items:center;white-space:nowrap}
+      .invoice-box p span:last-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       .description{padding:4mm 1mm;border-bottom:1px solid #000;font-size:11px}
       .candidate-block{padding:3mm 1mm;border-bottom:1px solid #000}
       .candidate-count{margin-bottom:2mm;font-weight:700;text-decoration:underline}
@@ -325,10 +334,12 @@ export function printInvoice(invoice, profileInput) {
 }
 
 function drawTextPair(doc, label, value, x, y, labelWidth = 34) {
+  const safeValue = String(value || '—').replace(/\s+/g, ' ').trim();
   doc.setFont('times', 'bold');
   doc.text(label, x, y);
   doc.setFont('times', 'normal');
-  doc.text(String(value || 'â€”'), x + labelWidth, y);
+  // Keep value on one line (no wrapping).
+  doc.text(safeValue, x + labelWidth, y, { baseline: 'alphabetic' });
 }
 
 export async function downloadInvoicePdf(invoice, profileInput) {
@@ -360,22 +371,23 @@ export async function downloadInvoicePdf(invoice, profileInput) {
   doc.text(`E: ${profile.email}, M: ${profile.phone}`, left + 119, y + 25, { align: 'center', maxWidth: 132 });
   y += headerHeight;
 
-  const clientHeight = 36;
+  const clientHeight = 34;
   doc.rect(left, y, width, clientHeight);
-  doc.line(left + 135, y, left + 135, y + clientHeight);
-  doc.setFontSize(9);
+  doc.line(left + 132, y, left + 132, y + clientHeight);
+  doc.setFontSize(8);
   doc.setFont('times', 'normal');
-  doc.text('To,', left + 1, y + 7);
+  doc.text('To,', left + 1, y + 6);
   doc.setFont('times', 'bold');
-  doc.text(invoice.company_name || 'â€”', left + 14, y + 7);
+  doc.text(invoice.company_name || '—', left + 14, y + 6);
   doc.setFont('times', 'normal');
-  doc.text(clientAddress(invoice) || 'â€”', left + 14, y + 14, { maxWidth: 116 });
+  doc.text(clientAddress(invoice) || '—', left + 14, y + 12, { maxWidth: 112 });
   doc.setFont('times', 'bold');
-  doc.text(`GST No: ${invoice.client_gst_number || 'â€”'}`, left + 14, y + 29);
-  drawTextPair(doc, 'Invoice No', invoice.invoice_number, left + 138, y + 8, 21);
-  drawTextPair(doc, 'Date', date(invoice.invoice_date), left + 138, y + 15, 21);
-  drawTextPair(doc, 'SAC', profile.sacCode, left + 138, y + 22, 21);
-  drawTextPair(doc, 'State Code', profile.stateCode, left + 138, y + 29, 21);
+  doc.text(`GST No: ${invoice.client_gst_number || '—'}`, left + 14, y + 27);
+  doc.setFontSize(8);
+  drawTextPair(doc, 'Invoice No', invoice.invoice_number, left + 135, y + 7, 18);
+  drawTextPair(doc, 'Date', date(invoice.invoice_date), left + 135, y + 13, 18);
+  drawTextPair(doc, 'SAC', profile.sacCode, left + 135, y + 19, 18);
+  drawTextPair(doc, 'State Code', profile.stateCode, left + 135, y + 25, 18);
   y += clientHeight;
 
   doc.rect(left, y, width, 11);
