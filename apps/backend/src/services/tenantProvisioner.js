@@ -5,8 +5,11 @@ import {
 } from '../config/database.js';
 import { ensureTenantBaseSchema } from '../migrations/ensureTenantBaseSchema.js';
 import { ensureSecuritySchema } from '../migrations/ensureSecuritySchema.js';
+import { ensureEmployeeProfileSchema } from '../migrations/ensureEmployeeProfileSchema.js';
 import { ensureV110Schema } from '../migrations/ensureV110Schema.js';
 import { ensureV120Schema } from '../migrations/ensureV120Schema.js';
+
+import { env } from '../config/env.js';
 
 const DB_NAME_PREFIX = 'company_';
 
@@ -40,6 +43,7 @@ export async function migrateTenantDatabase(
 
   await ensureTenantBaseSchema({ pool, dbName });
   await ensureSecuritySchema({ pool, dbName });
+  await ensureEmployeeProfileSchema({ pool, dbName });
   await ensureV110Schema({ pool, dbName });
   await ensureV120Schema({
     pool,
@@ -48,6 +52,33 @@ export async function migrateTenantDatabase(
   });
 
   return pool;
+}
+
+/**
+ * Migrate every ACTIVE company tenant DB from the master registry.
+ * Keeps newly onboarded companies in sync when schema ensures are added later.
+ */
+export async function migrateAllActiveTenants() {
+  const master = getMasterPool();
+  const [rows] = await master.query(
+    `SELECT code, db_name FROM companies
+     WHERE status = 'ACTIVE' AND db_name IS NOT NULL AND db_name <> ''
+     ORDER BY id ASC`
+  );
+
+  for (const row of rows) {
+    const isDefault =
+      row.db_name === env.dbName ||
+      row.code === env.defaultCompanyCode;
+    console.log(
+      `Migrating tenant schema: ${row.code} → ${row.db_name}`
+    );
+    await migrateTenantDatabase(row.db_name, {
+      forceSrsbInvoiceProfile: Boolean(isDefault)
+    });
+  }
+
+  return rows.length;
 }
 
 /**

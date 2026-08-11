@@ -1,4 +1,4 @@
-import app from './app.js';
+import { migrateTenantDatabase, migrateAllActiveTenants } from './services/tenantProvisioner.js';
 import { env } from './config/env.js';
 import {
   getMasterPool,
@@ -7,7 +7,7 @@ import {
 } from './config/database.js';
 import { startAttendanceScheduler } from './utils/attendanceScheduler.js';
 import { ensurePlatformSchema } from './migrations/ensurePlatformSchema.js';
-import { migrateTenantDatabase } from './services/tenantProvisioner.js';
+import app from './app.js';
 
 /**
  * Seed company_settings for the legacy default tenant from invoice_settings
@@ -69,12 +69,16 @@ async function start() {
     await ensurePlatformSchema();
     await testDatabaseConnection(getMasterPool());
 
-    // 2) Default / legacy tenant (current DB_NAME, e.g. srsb_hrms)
+    // 2) Migrate ALL active company DBs (SRSB + onboarded tenants)
     const defaultPool = getTenantPool(env.dbName);
     await testDatabaseConnection(defaultPool);
-    await migrateTenantDatabase(env.dbName, {
-      forceSrsbInvoiceProfile: true
-    });
+    const tenantCount = await migrateAllActiveTenants();
+    // Ensure default DB is migrated even if master registry is empty/offline.
+    if (tenantCount === 0) {
+      await migrateTenantDatabase(env.dbName, {
+        forceSrsbInvoiceProfile: true
+      });
+    }
     await ensureDefaultCompanySettings(defaultPool);
 
     app.listen(env.port, '0.0.0.0', () => {
@@ -82,7 +86,7 @@ async function start() {
         `SRSB Work Management API running at http://localhost:${env.port}`
       );
       console.log(
-        `Master DB: ${env.masterDbName} | Default tenant DB: ${env.dbName}`
+        `Master DB: ${env.masterDbName} | Default tenant DB: ${env.dbName} | Tenants migrated: ${tenantCount || 1}`
       );
       startAttendanceScheduler();
     });
