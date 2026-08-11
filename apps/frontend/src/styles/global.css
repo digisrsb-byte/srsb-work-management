@@ -619,6 +619,11 @@ textarea { resize: vertical; }
 .status-approved { background: #dcfce7; color: #166534; }
 .status-rejected { background: #fee2e2; color: #991b1b; }
 .status-pending { background: #fef3c7; color: #92400e; }
+.status-success,
+.status-paid { background: #dcfce7; color: #166534; }
+.status-failed { background: #fee2e2; color: #991b1b; }
+.status-cancelled { background: #e2e8f0; color: #475569; }
+.status-partially_paid { background: #ffedd5; color: #9a3412; }
 
 @media (max-width: 980px) {
   .summary-grid-4, .dashboard-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

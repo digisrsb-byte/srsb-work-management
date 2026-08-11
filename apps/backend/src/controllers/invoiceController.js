@@ -2,7 +2,8 @@ import { pool } from '../config/database.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
 
-const allowedStatuses = ['DRAFT','PENDING','PARTIALLY_PAID','PAID','CANCELLED'];
+const allowedStatuses = ['DRAFT','PENDING','PARTIALLY_PAID','PAID','SUCCESS','FAILED','CANCELLED'];
+const DEFAULT_SAC_CODE = '998591';
 const allowedGstTypes = ['NONE','IGST','CGST_SGST'];
 const allowedFeeTypes = ['PERCENTAGE_CTC','PERCENTAGE_GROSS','FIXED','CUSTOM'];
 
@@ -135,10 +136,10 @@ function deriveTotals(body, items, paidAmountOverride = null) {
 
   let status = String(body.status || 'PENDING').toUpperCase();
   if (!allowedStatuses.includes(status)) status = 'PENDING';
-  if (status !== 'CANCELLED') {
-    if (totalAmount > 0 && paidAmount >= totalAmount) status = 'PAID';
+  if (status !== 'CANCELLED' && status !== 'FAILED') {
+    if (totalAmount > 0 && paidAmount >= totalAmount) status = 'SUCCESS';
     else if (paidAmount > 0) status = 'PARTIALLY_PAID';
-    else if (status !== 'DRAFT') status = 'PENDING';
+    else if (status !== 'DRAFT' && status !== 'SUCCESS') status = 'PENDING';
   }
 
   return {
@@ -209,7 +210,7 @@ export const updateInvoiceSettings = asyncHandler(async (req, res) => {
     registeredAddress: String(req.body.registeredAddress || '').trim() || null,
     email: String(req.body.email || '').trim() || null,
     phone: String(req.body.phone || '').trim() || null,
-    defaultSacCode: String(req.body.defaultSacCode || '998616').trim(),
+    defaultSacCode: String(req.body.defaultSacCode || DEFAULT_SAC_CODE).trim(),
     defaultCgstRate: rate(req.body.defaultCgstRate),
     defaultSgstRate: rate(req.body.defaultSgstRate),
     defaultIgstRate: rate(req.body.defaultIgstRate),
@@ -342,7 +343,7 @@ export const createInvoice = asyncHandler(async (req, res) => {
         totals.totalAmount, totals.paidAmount, totals.paidAmount > 0,
         totals.paidAmount > 0 ? (req.body.paymentDate || invoiceDate) : null,
         invoiceDate, totals.status, String(req.body.notes || '').trim() || null,
-        String(req.body.sacCode || '998616').trim(),
+        String(req.body.sacCode || DEFAULT_SAC_CODE).trim(),
         String(req.body.placeOfSupply || '').trim() || null,
         totals.cgstRate, totals.sgstRate, totals.igstRate]
     );
@@ -403,7 +404,7 @@ export const updateInvoice = asyncHandler(async (req, res) => {
       [invoiceNumber, clientId, invoiceDate, totals.serviceCharges, totals.gstType, totals.igst,
         totals.cgst, totals.sgst, totals.subtotal, totals.gstAmount, totals.totalAmount,
         totals.status, String(req.body.notes || '').trim() || null,
-        String(req.body.sacCode || '998616').trim(),
+        String(req.body.sacCode || DEFAULT_SAC_CODE).trim(),
         String(req.body.placeOfSupply || '').trim() || null,
         totals.cgstRate, totals.sgstRate, totals.igstRate, id]
     );
@@ -438,7 +439,7 @@ export const recordPayment = asyncHandler(async (req, res) => {
       throw new AppError(`Payment amount cannot exceed the pending amount of ${pendingAmount.toFixed(2)}.`, 400);
     }
     const newPaid = money(Number(invoice.paid_amount || 0) + amount);
-    const status = newPaid >= Number(invoice.total_amount) ? 'PAID' : 'PARTIALLY_PAID';
+    const status = newPaid >= Number(invoice.total_amount) ? 'SUCCESS' : 'PARTIALLY_PAID';
     await connection.query(
       `INSERT INTO invoice_payments (invoice_id, amount, payment_date, payment_method, reference_number)
        VALUES (?, ?, ?, ?, ?)`,
@@ -451,6 +452,79 @@ export const recordPayment = asyncHandler(async (req, res) => {
     );
     await connection.commit();
     res.json({ success: true, message: 'Payment recorded successfully.' });
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+});
+
+/**
+ * Set payment outcome from the list UI: SUCCESS | PENDING | FAILED.
+ * SUCCESS marks the invoice fully paid; FAILED / PENDING update status only.
+ */
+export const setPaymentOutcome = asyncHandler(async (req, res) => {
+  const id = idFrom(req.params.id);
+  const outcome = String(req.body.outcome || req.body.status || '')
+    .trim()
+    .toUpperCase();
+
+  const allowedOutcomes = ['SUCCESS', 'PENDING', 'FAILED'];
+  if (!allowedOutcomes.includes(outcome)) {
+    throw new AppError(
+      'Payment outcome must be SUCCESS, PENDING, or FAILED.',
+      400
+    );
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [[invoice]] = await connection.query(
+      'SELECT id, total_amount, paid_amount, status FROM invoices WHERE id = ? FOR UPDATE',
+      [id]
+    );
+    if (!invoice) throw new AppError('Invoice not found.', 404);
+    if (invoice.status === 'CANCELLED') {
+      throw new AppError('Payment outcome cannot be set for a cancelled invoice.', 409);
+    }
+
+    if (outcome === 'SUCCESS') {
+      const total = money(invoice.total_amount);
+      const alreadyPaid = money(invoice.paid_amount);
+      const remaining = money(Math.max(total - alreadyPaid, 0));
+      if (remaining > 0) {
+        await connection.query(
+          `INSERT INTO invoice_payments (invoice_id, amount, payment_date, payment_method, reference_number)
+           VALUES (?, ?, CURDATE(), ?, ?)`,
+          [id, remaining, 'Marked Success', 'UI_PAYMENT_OUTCOME']
+        );
+      }
+      await connection.query(
+        `UPDATE invoices
+         SET paid_amount = ?, payment_released = TRUE, payment_date = CURDATE(), status = 'SUCCESS'
+         WHERE id = ?`,
+        [total, id]
+      );
+    } else if (outcome === 'PENDING') {
+      await connection.query(
+        `UPDATE invoices SET status = 'PENDING' WHERE id = ?`,
+        [id]
+      );
+    } else {
+      await connection.query(
+        `UPDATE invoices SET status = 'FAILED' WHERE id = ?`,
+        [id]
+      );
+    }
+
+    await connection.commit();
+    res.json({
+      success: true,
+      message: `Payment marked as ${outcome.toLowerCase()}.`,
+      data: { status: outcome }
+    });
   } catch (error) {
     await connection.rollback();
     throw error;

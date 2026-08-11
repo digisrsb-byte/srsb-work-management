@@ -106,19 +106,41 @@ export async function ensureV120Schema(options = {}) {
 
   // Recruitment invoice header fields. Legacy due-date/file columns remain for compatibility,
   // but version 1.2.0 no longer exposes or uses them.
-  await addColumn('invoices', 'sac_code', "VARCHAR(24) NOT NULL DEFAULT '998616'");
+  await addColumn('invoices', 'sac_code', "VARCHAR(24) NOT NULL DEFAULT '998591'");
   await addColumn('invoices', 'place_of_supply', 'VARCHAR(160) NULL');
   await addColumn('invoices', 'cgst_rate', 'DECIMAL(6,3) NOT NULL DEFAULT 0');
   await addColumn('invoices', 'sgst_rate', 'DECIMAL(6,3) NOT NULL DEFAULT 0');
   await addColumn('invoices', 'igst_rate', 'DECIMAL(6,3) NOT NULL DEFAULT 0');
+
+  // Allow Success / Failed payment outcomes in the invoice list UI.
+  await pool.query(
+    `ALTER TABLE invoices
+     MODIFY status ENUM(
+       'DRAFT','PENDING','PARTIALLY_PAID','PAID','SUCCESS','FAILED','OVERDUE','CANCELLED'
+     ) NOT NULL DEFAULT 'PENDING'`
+  );
+
+  // Align legacy invoice SAC codes (invoice_settings updated later once table exists).
+  if (forceSrsbInvoiceProfile) {
+    await pool.query(
+      `UPDATE invoices SET sac_code = '998591' WHERE sac_code = '998616'`
+    );
+  }
+
   await pool.query(
     `UPDATE invoices
      SET status = CASE
-       WHEN paid_amount >= total_amount AND total_amount > 0 THEN 'PAID'
+       WHEN paid_amount >= total_amount AND total_amount > 0 THEN 'SUCCESS'
        WHEN paid_amount > 0 THEN 'PARTIALLY_PAID'
        ELSE 'PENDING'
      END
      WHERE status = 'OVERDUE'`
+  );
+
+  // Keep older PAID rows visible as Success going forward.
+  await pool.query(
+    `UPDATE invoices SET status = 'SUCCESS'
+     WHERE status = 'PAID' AND paid_amount >= total_amount AND total_amount > 0`
   );
 
   await pool.query(
@@ -155,7 +177,7 @@ export async function ensureV120Schema(options = {}) {
        registered_address VARCHAR(1000) NULL,
        email VARCHAR(180) NULL,
        phone VARCHAR(120) NULL,
-       default_sac_code VARCHAR(24) NOT NULL DEFAULT '998616',
+       default_sac_code VARCHAR(24) NOT NULL DEFAULT '998591',
        default_cgst_rate DECIMAL(6,3) NOT NULL DEFAULT 9,
        default_sgst_rate DECIMAL(6,3) NOT NULL DEFAULT 9,
        default_igst_rate DECIMAL(6,3) NOT NULL DEFAULT 18,
@@ -185,7 +207,7 @@ export async function ensureV120Schema(options = {}) {
          'No. 228/B, 55th Cross, 3rd Block, Rajajinagar, Bangalore - 560010',
          'srsbhrsolutions25@gmail.com',
          '8317406575 / 8660666087',
-         '998616',
+         '998591',
          9,
          9,
          18,
@@ -207,7 +229,7 @@ export async function ensureV120Schema(options = {}) {
          registered_address = 'No. 228/B, 55th Cross, 3rd Block, Rajajinagar, Bangalore - 560010',
          email = 'srsbhrsolutions25@gmail.com',
          phone = '8317406575 / 8660666087',
-         default_sac_code = '998616',
+         default_sac_code = '998591',
          default_cgst_rate = 9,
          default_sgst_rate = 9,
          default_igst_rate = 18,
@@ -219,6 +241,12 @@ export async function ensureV120Schema(options = {}) {
          authorised_signatory = 'Authorised Signatory',
          invoice_prefix = 'SRSB'
        WHERE id = 1`
+    );
+
+    await pool.query(
+      `UPDATE company_settings
+       SET sac_code = '998591'
+       WHERE id = 1 AND (sac_code IS NULL OR sac_code = '' OR sac_code = '998616')`
     );
   }
 

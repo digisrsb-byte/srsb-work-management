@@ -7,7 +7,7 @@ export const DEFAULT_INVOICE_PROFILE = Object.freeze({
   registeredAddress: '',
   email: '',
   phone: '',
-  sacCode: '998616',
+  sacCode: '998591',
   stateCode: '',
   recruitmentDescription: 'This is with Regard to manpower recruitment charges of below mentioned Candidates',
   bankAccountName: '',

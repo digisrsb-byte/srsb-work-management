@@ -8,6 +8,7 @@ import {
   createInvoice,
   updateInvoice,
   recordPayment,
+  setPaymentOutcome,
   cancelInvoice,
   deleteInvoice
 } from '../controllers/invoiceController.js';
@@ -23,6 +24,7 @@ router.get('/:id', getInvoice);
 router.post('/', createInvoice);
 router.put('/:id', updateInvoice);
 router.post('/:id/payments', recordPayment);
+router.patch('/:id/payment-outcome', setPaymentOutcome);
 router.patch('/:id/cancel', cancelInvoice);
 router.delete('/:id', deleteInvoice);
 export default router;

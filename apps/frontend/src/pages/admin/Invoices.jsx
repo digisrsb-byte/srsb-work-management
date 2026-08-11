@@ -41,11 +41,16 @@ const emptyPayment = {
   referenceNumber: ''
 };
 
-const statuses = ['DRAFT', 'PENDING', 'PARTIALLY_PAID', 'PAID', 'CANCELLED'];
+const statuses = ['DRAFT', 'PENDING', 'PARTIALLY_PAID', 'PAID', 'SUCCESS', 'FAILED', 'CANCELLED'];
 
-const label = (value) => String(value || '')
-  .replaceAll('_', ' ')
-  .replace(/\b\w/g, (letter) => letter.toUpperCase());
+const label = (value) => {
+  const raw = String(value || '').toUpperCase();
+  if (raw === 'PAID' || raw === 'SUCCESS') return 'Success';
+  if (raw === 'FAILED') return 'Failed';
+  return String(value || '')
+    .replaceAll('_', ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+};
 
 const money = (value) => new Intl.NumberFormat('en-IN', {
   style: 'currency',
@@ -381,6 +386,28 @@ export default function Invoices() {
     }
   }
 
+  async function choosePaymentOutcome(outcome) {
+    if (!paymentInvoice) return;
+    try {
+      setSaving(true);
+      setError('');
+      const response = await api.patch(
+        `/invoices/${paymentInvoice.id}/payment-outcome`,
+        { outcome }
+      );
+      setMessage(response.data.message);
+      setPaymentInvoice(null);
+      await loadInvoices();
+    } catch (requestError) {
+      setError(
+        requestError.response?.data?.message ||
+          'Payment status could not be updated.'
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function cancel(invoice) {
     if (!window.confirm(`Cancel invoice ${invoice.invoice_number}?`)) return;
     try {
@@ -630,7 +657,8 @@ export default function Invoices() {
           <thead>
             <tr>
               <th>Invoice</th>
-              <th>Client / Candidates</th>
+              <th>Client</th>
+              <th>Candidates</th>
               <th>Date</th>
               <th>Total</th>
               <th>Paid / Pending</th>
@@ -640,18 +668,28 @@ export default function Invoices() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan="7">Loading invoices…</td></tr>
+              <tr><td colSpan="8">Loading invoices…</td></tr>
             ) : invoices.length === 0 ? (
-              <tr><td colSpan="7">No invoices found.</td></tr>
+              <tr><td colSpan="8">No invoices found.</td></tr>
             ) : (
               invoices.map((invoice) => (
                 <tr key={invoice.id}>
-                  <td><strong>{invoice.invoice_number}</strong><small>SAC {invoiceProfile.sacCode}</small></td>
-                  <td><strong>{invoice.company_name}</strong><small>{invoice.candidate_names || 'No candidates'}</small></td>
+                  <td>
+                    <strong>{invoice.invoice_number}</strong>
+                    <small>
+                      {invoice.sac_code || invoiceProfile.sacCode || '998591'}
+                    </small>
+                  </td>
+                  <td><strong>{invoice.company_name}</strong></td>
+                  <td>{invoice.candidate_names || '—'}</td>
                   <td>{dateOnly(invoice.invoice_date)}</td>
                   <td>{money(invoice.total_amount)}</td>
                   <td>{money(invoice.paid_amount)} / {money(invoice.pending_amount)}</td>
-                  <td><span className={`status-badge status-${String(invoice.status).toLowerCase()}`}>{label(invoice.status)}</span></td>
+                  <td>
+                    <span className={`status-badge status-${String(invoice.status).toLowerCase()}`}>
+                      {label(invoice.status)}
+                    </span>
+                  </td>
                   <td>
                     <div className="row-actions">
                       <button className="icon-btn" title="Preview" onClick={() => previewInvoice(invoice)}><Eye size={16} /></button>
@@ -660,11 +698,19 @@ export default function Invoices() {
                       {invoice.status !== 'CANCELLED' && (
                         <button className="icon-btn" title="Edit" onClick={() => openEdit(invoice)}><Pencil size={16} /></button>
                       )}
-                      {Number(invoice.pending_amount) > 0 && invoice.status !== 'CANCELLED' && (
-                        <button className="btn btn-secondary btn-small" onClick={() => {
-                          setPaymentInvoice(invoice);
-                          setPaymentForm({ ...emptyPayment, amount: invoice.pending_amount });
-                        }}>Payment</button>
+                      {invoice.status !== 'CANCELLED' && (
+                        <button
+                          className="btn btn-secondary btn-small"
+                          onClick={() => {
+                            setPaymentInvoice(invoice);
+                            setPaymentForm({
+                              ...emptyPayment,
+                              amount: invoice.pending_amount
+                            });
+                          }}
+                        >
+                          Payment
+                        </button>
                       )}
                       {invoice.status !== 'CANCELLED' && (
                         <button className="icon-btn danger" title="Delete" onClick={() => remove(invoice)}><Trash2 size={16} /></button>
@@ -702,18 +748,52 @@ export default function Invoices() {
 
       {paymentInvoice && (
         <div className="modal-overlay">
-          <form className="modal-card" onSubmit={recordPayment}>
+          <div className="modal-card">
             <div className="section-heading">
-              <h2>Record Payment</h2>
-              <button className="icon-btn" type="button" onClick={() => setPaymentInvoice(null)}><X size={20} /></button>
+              <h2>Payment Status</h2>
+              <button
+                className="icon-btn"
+                type="button"
+                onClick={() => setPaymentInvoice(null)}
+              >
+                <X size={20} />
+              </button>
             </div>
-            <p>{paymentInvoice.invoice_number} · Pending {money(paymentInvoice.pending_amount)}</p>
-            <label className="form-group"><span>Amount</span><input className="input" type="number" min="0.01" step="0.01" value={paymentForm.amount} onChange={(event) => setPaymentForm((current) => ({ ...current, amount: event.target.value }))} required /></label>
-            <label className="form-group"><span>Payment Date</span><input className="input" type="date" value={paymentForm.paymentDate} onChange={(event) => setPaymentForm((current) => ({ ...current, paymentDate: event.target.value }))} required /></label>
-            <label className="form-group"><span>Method</span><input className="input" value={paymentForm.paymentMethod} onChange={(event) => setPaymentForm((current) => ({ ...current, paymentMethod: event.target.value }))} /></label>
-            <label className="form-group"><span>Reference Number</span><input className="input" value={paymentForm.referenceNumber} onChange={(event) => setPaymentForm((current) => ({ ...current, referenceNumber: event.target.value }))} /></label>
-            <button className="btn btn-primary" disabled={saving}>Save Payment</button>
-          </form>
+            <p>
+              {paymentInvoice.invoice_number} ·{' '}
+              {paymentInvoice.company_name}
+            </p>
+            <p className="page-subtitle">
+              Choose an outcome. It will update the Status column immediately.
+            </p>
+            <div className="form-actions" style={{ flexWrap: 'wrap', gap: 10 }}>
+              <button
+                className="btn btn-primary"
+                type="button"
+                disabled={saving}
+                onClick={() => choosePaymentOutcome('SUCCESS')}
+              >
+                Success
+              </button>
+              <button
+                className="btn btn-secondary"
+                type="button"
+                disabled={saving}
+                onClick={() => choosePaymentOutcome('PENDING')}
+              >
+                Pending
+              </button>
+              <button
+                className="btn btn-secondary"
+                type="button"
+                disabled={saving}
+                onClick={() => choosePaymentOutcome('FAILED')}
+                style={{ borderColor: '#dc2626', color: '#b91c1c' }}
+              >
+                Failed
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
