@@ -36,7 +36,7 @@ const emptyForm = {
   bankName: '',
   bankBranch: '',
   authorisedSignatory: 'Authorised Signatory',
-  sacCode: '998616',
+  sacCode: '998591',
   logo: null,
   signature: null,
   adminFullName: '',
@@ -220,7 +220,7 @@ export default function SetupWizard() {
         bankName: form.bankName.trim(),
         bankBranch: form.bankBranch.trim(),
         authorisedSignatory: form.authorisedSignatory.trim(),
-        sacCode: form.sacCode.trim() || '998616',
+        sacCode: form.sacCode.trim() || '998591',
         logo: form.logo,
         signature: form.signature,
         admin: {

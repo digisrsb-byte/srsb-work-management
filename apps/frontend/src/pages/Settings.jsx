@@ -69,7 +69,7 @@ export default function Settings() {
     bankIfsc: '',
     bankName: '',
     bankBranch: '',
-    sacCode: '998616',
+    sacCode: '998591',
     authorisedSignatory: '',
     invoicePrefix: ''
   });
@@ -135,7 +135,7 @@ export default function Settings() {
       bankIfsc: settings.bankIfsc || '',
       bankName: settings.bankName || '',
       bankBranch: settings.bankBranch || '',
-      sacCode: settings.sacCode || '998616',
+      sacCode: settings.sacCode || '998591',
       authorisedSignatory: settings.authorisedSignatory || '',
       invoicePrefix: settings.invoicePrefix || ''
     });
