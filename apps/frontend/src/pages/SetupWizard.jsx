@@ -3,7 +3,6 @@ import {
   Building2,
   CheckCircle2,
   CreditCard,
-  ImagePlus,
   KeyRound,
   ShieldCheck,
   UserPlus
@@ -12,10 +11,11 @@ import { Link, useNavigate } from 'react-router-dom';
 import api from '../services/api.js';
 import BrandLogo from '../components/BrandLogo.jsx';
 
+const PRODUCT_NAME = 'SRSB Work Management';
+
 const STEPS = [
   { id: 'activation', title: 'Activation', icon: KeyRound },
   { id: 'profile', title: 'Company', icon: Building2 },
-  { id: 'branding', title: 'Logo', icon: ImagePlus },
   { id: 'bank', title: 'Bank', icon: CreditCard },
   { id: 'admin', title: 'Admin', icon: UserPlus }
 ];
@@ -37,8 +37,6 @@ const emptyForm = {
   bankBranch: '',
   authorisedSignatory: 'Authorised Signatory',
   sacCode: '998591',
-  logo: null,
-  signature: null,
   adminFullName: '',
   adminEmail: '',
   adminUsername: '',
@@ -46,36 +44,10 @@ const emptyForm = {
   adminConfirmPassword: ''
 };
 
-function fileToPayload(file) {
-  return new Promise((resolve, reject) => {
-    if (!file) {
-      resolve(null);
-      return;
-    }
-    if (file.size > 2 * 1024 * 1024) {
-      reject(new Error('Images must be 2 MB or smaller.'));
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      resolve({
-        name: file.name,
-        type: file.type || 'image/png',
-        data: String(reader.result || '')
-      });
-    };
-    reader.onerror = () =>
-      reject(new Error('Unable to read the selected image.'));
-    reader.readAsDataURL(file);
-  });
-}
-
 export default function SetupWizard() {
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState(emptyForm);
-  const [logoPreview, setLogoPreview] = useState('');
-  const [signaturePreview, setSignaturePreview] = useState('');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -126,10 +98,6 @@ export default function SetupWizard() {
       setError('Legal name is required.');
       return false;
     }
-    if (!form.displayName.trim()) {
-      setError('Display name is required.');
-      return false;
-    }
     return true;
   }
 
@@ -162,7 +130,7 @@ export default function SetupWizard() {
       return;
     }
     if (step === 1 && !validateProfileStep()) return;
-    if (step === 4) {
+    if (step === 3) {
       if (!validateAdminStep()) return;
       await submitRegistration();
       return;
@@ -176,39 +144,17 @@ export default function SetupWizard() {
     setStep((current) => Math.max(current - 1, 0));
   }
 
-  async function onLogoChange(event) {
-    const file = event.target.files?.[0];
-    try {
-      const payload = await fileToPayload(file);
-      updateField('logo', payload);
-      setLogoPreview(payload?.data || '');
-      setError('');
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
-  async function onSignatureChange(event) {
-    const file = event.target.files?.[0];
-    try {
-      const payload = await fileToPayload(file);
-      updateField('signature', payload);
-      setSignaturePreview(payload?.data || '');
-      setError('');
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
   async function submitRegistration() {
     setLoading(true);
     setError('');
     try {
+      const legalName = form.legalName.trim();
       const response = await api.post('/onboarding/register-company', {
         activationCode: form.activationCode.trim(),
         companyCode: form.companyCode.trim().toUpperCase(),
-        legalName: form.legalName.trim(),
-        displayName: form.displayName.trim(),
+        legalName,
+        // App chrome stays SRSB-branded; legal name is used for invoices/docs.
+        displayName: form.displayName.trim() || legalName,
         address: form.address.trim(),
         phone: form.phone.trim(),
         email: form.email.trim(),
@@ -221,8 +167,6 @@ export default function SetupWizard() {
         bankBranch: form.bankBranch.trim(),
         authorisedSignatory: form.authorisedSignatory.trim(),
         sacCode: form.sacCode.trim() || '998591',
-        logo: form.logo,
-        signature: form.signature,
         admin: {
           fullName: form.adminFullName.trim(),
           email: form.adminEmail.trim(),
@@ -256,11 +200,12 @@ export default function SetupWizard() {
   return (
     <div className="setup-page">
       <section className="setup-side">
-        <BrandLogo name="Work Management" />
+        <BrandLogo name={PRODUCT_NAME} />
         <h1>Company setup</h1>
         <p>
-          Activate your workspace, add company details and create the
-          first admin account. Each company gets an isolated database.
+          Activate your workspace with an activation code, then enter your
+          company legal details, bank info and first admin. The app stays
+          branded as SRSB Work Management.
         </p>
         <ul className="setup-checklist">
           <li>
@@ -270,7 +215,7 @@ export default function SetupWizard() {
             <Building2 size={18} /> Company profile &amp; GST
           </li>
           <li>
-            <CheckCircle2 size={18} /> Logo &amp; invoice bank details
+            <CheckCircle2 size={18} /> Bank details &amp; admin account
           </li>
         </ul>
       </section>
@@ -343,6 +288,10 @@ export default function SetupWizard() {
 
           {step === 1 && (
             <div className="setup-fields">
+              <p>
+                These details are used for invoices and records. App logo and
+                product name remain SRSB Work Management.
+              </p>
               <div className="form-grid">
                 <label className="form-group">
                   <span>Company code</span>
@@ -363,15 +312,14 @@ export default function SetupWizard() {
                   />
                 </label>
                 <label className="form-group">
-                  <span>Display name</span>
+                  <span>Display name (optional)</span>
                   <input
                     className="input"
                     value={form.displayName}
                     onChange={(event) =>
                       updateField('displayName', event.target.value)
                     }
-                    placeholder="Acme Staffing"
-                    required
+                    placeholder="Defaults to legal name"
                   />
                 </label>
                 <label className="form-group" style={{ gridColumn: '1 / -1' }}>
@@ -446,44 +394,6 @@ export default function SetupWizard() {
 
           {step === 2 && (
             <div className="setup-fields">
-              <p>Upload your company logo and optional authorised signature.</p>
-              <div className="setup-upload-grid">
-                <label className="setup-upload">
-                  <span>Company logo</span>
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp,image/gif"
-                    onChange={onLogoChange}
-                  />
-                  {logoPreview ? (
-                    <img src={logoPreview} alt="Logo preview" />
-                  ) : (
-                    <div className="setup-upload-placeholder">
-                      PNG / JPG up to 2 MB
-                    </div>
-                  )}
-                </label>
-                <label className="setup-upload">
-                  <span>Authorised signature (optional)</span>
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp,image/gif"
-                    onChange={onSignatureChange}
-                  />
-                  {signaturePreview ? (
-                    <img src={signaturePreview} alt="Signature preview" />
-                  ) : (
-                    <div className="setup-upload-placeholder">
-                      Optional
-                    </div>
-                  )}
-                </label>
-              </div>
-            </div>
-          )}
-
-          {step === 3 && (
-            <div className="setup-fields">
               <p>These details appear on recruitment invoices.</p>
               <div className="form-grid">
                 <label className="form-group">
@@ -553,7 +463,7 @@ export default function SetupWizard() {
             </div>
           )}
 
-          {step === 4 && (
+          {step === 3 && (
             <div className="setup-fields">
               <p>This account becomes the company administrator.</p>
               <div className="form-grid">
@@ -645,10 +555,10 @@ export default function SetupWizard() {
               disabled={loading}
             >
               {loading
-                ? step === 4
+                ? step === 3
                   ? 'Creating company…'
                   : 'Please wait…'
-                : step === 4
+                : step === 3
                   ? 'Create company'
                   : step === 0
                     ? 'Validate & continue'

@@ -2,7 +2,7 @@ import { pool } from '../config/database.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
 
-const allowedStatuses = ['DRAFT','PENDING','PARTIALLY_PAID','PAID','SUCCESS','FAILED','CANCELLED'];
+const allowedStatuses = ['DRAFT','PENDING','PARTIALLY_PAID','PAID','SUCCESS','RECEIVED','FAILED','CANCELLED'];
 const DEFAULT_SAC_CODE = '998591';
 const allowedGstTypes = ['NONE','IGST','CGST_SGST'];
 const allowedFeeTypes = ['PERCENTAGE_CTC','PERCENTAGE_GROSS','FIXED','CUSTOM'];
@@ -137,9 +137,9 @@ function deriveTotals(body, items, paidAmountOverride = null) {
   let status = String(body.status || 'PENDING').toUpperCase();
   if (!allowedStatuses.includes(status)) status = 'PENDING';
   if (status !== 'CANCELLED' && status !== 'FAILED') {
-    if (totalAmount > 0 && paidAmount >= totalAmount) status = 'SUCCESS';
+    if (totalAmount > 0 && paidAmount >= totalAmount) status = 'RECEIVED';
     else if (paidAmount > 0) status = 'PARTIALLY_PAID';
-    else if (status !== 'DRAFT' && status !== 'SUCCESS') status = 'PENDING';
+    else if (status !== 'DRAFT' && status !== 'RECEIVED' && status !== 'SUCCESS') status = 'PENDING';
   }
 
   return {
@@ -439,7 +439,7 @@ export const recordPayment = asyncHandler(async (req, res) => {
       throw new AppError(`Payment amount cannot exceed the pending amount of ${pendingAmount.toFixed(2)}.`, 400);
     }
     const newPaid = money(Number(invoice.paid_amount || 0) + amount);
-    const status = newPaid >= Number(invoice.total_amount) ? 'SUCCESS' : 'PARTIALLY_PAID';
+    const status = newPaid >= Number(invoice.total_amount) ? 'RECEIVED' : 'PARTIALLY_PAID';
     await connection.query(
       `INSERT INTO invoice_payments (invoice_id, amount, payment_date, payment_method, reference_number)
        VALUES (?, ?, ?, ?, ?)`,
@@ -461,8 +461,8 @@ export const recordPayment = asyncHandler(async (req, res) => {
 });
 
 /**
- * Set payment outcome from the list UI: SUCCESS | PENDING | FAILED.
- * SUCCESS marks the invoice fully paid; FAILED / PENDING update status only.
+ * Set payment outcome from the list UI: RECEIVED | SUCCESS | PENDING | FAILED.
+ * RECEIVED/SUCCESS marks the invoice fully paid.
  */
 export const setPaymentOutcome = asyncHandler(async (req, res) => {
   const id = idFrom(req.params.id);
@@ -470,10 +470,10 @@ export const setPaymentOutcome = asyncHandler(async (req, res) => {
     .trim()
     .toUpperCase();
 
-  const allowedOutcomes = ['SUCCESS', 'PENDING', 'FAILED'];
+  const allowedOutcomes = ['RECEIVED', 'SUCCESS', 'PENDING', 'FAILED'];
   if (!allowedOutcomes.includes(outcome)) {
     throw new AppError(
-      'Payment outcome must be SUCCESS, PENDING, or FAILED.',
+      'Payment outcome must be RECEIVED, SUCCESS, PENDING, or FAILED.',
       400
     );
   }
@@ -490,7 +490,7 @@ export const setPaymentOutcome = asyncHandler(async (req, res) => {
       throw new AppError('Payment outcome cannot be set for a cancelled invoice.', 409);
     }
 
-    if (outcome === 'SUCCESS') {
+    if (outcome === 'SUCCESS' || outcome === 'RECEIVED') {
       const total = money(invoice.total_amount);
       const alreadyPaid = money(invoice.paid_amount);
       const remaining = money(Math.max(total - alreadyPaid, 0));
@@ -498,12 +498,12 @@ export const setPaymentOutcome = asyncHandler(async (req, res) => {
         await connection.query(
           `INSERT INTO invoice_payments (invoice_id, amount, payment_date, payment_method, reference_number)
            VALUES (?, ?, CURDATE(), ?, ?)`,
-          [id, remaining, 'Marked Success', 'UI_PAYMENT_OUTCOME']
+          [id, remaining, 'Marked Received', 'UI_PAYMENT_OUTCOME']
         );
       }
       await connection.query(
         `UPDATE invoices
-         SET paid_amount = ?, payment_released = TRUE, payment_date = CURDATE(), status = 'SUCCESS'
+         SET paid_amount = ?, payment_released = TRUE, payment_date = CURDATE(), status = 'RECEIVED'
          WHERE id = ?`,
         [total, id]
       );
@@ -520,10 +520,12 @@ export const setPaymentOutcome = asyncHandler(async (req, res) => {
     }
 
     await connection.commit();
+    const finalStatus =
+      outcome === 'SUCCESS' || outcome === 'RECEIVED' ? 'RECEIVED' : outcome;
     res.json({
       success: true,
-      message: `Payment marked as ${outcome.toLowerCase()}.`,
-      data: { status: outcome }
+      message: `Payment marked as ${finalStatus === 'RECEIVED' ? 'Received' : finalStatus.toLowerCase()}.`,
+      data: { status: finalStatus }
     });
   } catch (error) {
     await connection.rollback();

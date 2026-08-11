@@ -116,7 +116,7 @@ export async function ensureV120Schema(options = {}) {
   await pool.query(
     `ALTER TABLE invoices
      MODIFY status ENUM(
-       'DRAFT','PENDING','PARTIALLY_PAID','PAID','SUCCESS','FAILED','OVERDUE','CANCELLED'
+       'DRAFT','PENDING','PARTIALLY_PAID','PAID','SUCCESS','RECEIVED','FAILED','OVERDUE','CANCELLED'
      ) NOT NULL DEFAULT 'PENDING'`
   );
 
@@ -137,10 +137,10 @@ export async function ensureV120Schema(options = {}) {
      WHERE status = 'OVERDUE'`
   );
 
-  // Keep older PAID rows visible as Success going forward.
+  // Keep older PAID/SUCCESS rows visible as Received going forward.
   await pool.query(
-    `UPDATE invoices SET status = 'SUCCESS'
-     WHERE status = 'PAID' AND paid_amount >= total_amount AND total_amount > 0`
+    `UPDATE invoices SET status = 'RECEIVED'
+     WHERE status IN ('PAID','SUCCESS') AND paid_amount >= total_amount AND total_amount > 0`
   );
 
   await pool.query(

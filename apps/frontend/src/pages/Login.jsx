@@ -314,10 +314,7 @@ export default function Login() {
   return (
     <div className="login-page">
       <section className="login-brand-panel">
-        <BrandLogo
-          name={branding.displayName}
-          logoUrl={branding.logoDataUrl || undefined}
-        />
+        <BrandLogo name="SRSB Work Management" />
 
         <div style={{ marginTop: 30 }}>
           <span className="badge badge-active">
@@ -325,7 +322,7 @@ export default function Login() {
           </span>
 
           <h1 style={{ marginTop: 16 }}>
-            {branding.displayName}
+            SRSB Work Management
           </h1>
 
           <p>
@@ -400,7 +397,7 @@ export default function Login() {
 
             {!companyCode.trim() && (
               <div className="message">
-                Enter your company code to load branding, or{' '}
+                Enter your company code, or{' '}
                 <Link to="/setup">complete first-time setup</Link>.
               </div>
             )}
