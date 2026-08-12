@@ -2,7 +2,8 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import {
   getLatestAppUpdate,
-  downloadLatestAppUpdate
+  downloadLatestAppUpdate,
+  downloadUpdaterProviderAsset
 } from '../controllers/appUpdateController.js';
 
 const router = Router();
@@ -22,6 +23,12 @@ const updateDownloadLimiter = rateLimit({
 });
 
 router.get('/latest', updateCheckLimiter, getLatestAppUpdate);
+router.get(
+  '/provider/:assetName',
+  updateDownloadLimiter,
+  downloadUpdaterProviderAsset
+);
+
 router.get('/download/:assetId', updateDownloadLimiter, downloadLatestAppUpdate);
 
 export default router;

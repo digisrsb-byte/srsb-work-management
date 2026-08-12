@@ -1,0 +1,81 @@
+name: Release Windows Desktop
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify tag matches package version
+        shell: pwsh
+        run: |
+          $package = Get-Content package.json -Raw | ConvertFrom-Json
+          $expected = "v$($package.version)"
+          $actual = "${{ github.ref_name }}"
+
+          if ($actual -ne $expected) {
+            throw "Tag $actual does not match package version $expected."
+          }
+
+      - name: Validate backend
+        run: npm run validate:backend
+
+      - name: Validate release source
+        run: npm run validate:v120
+
+      - name: Build Windows installer and updater metadata
+        run: npm run build:desktop
+
+      - name: Verify updater artifacts
+        shell: pwsh
+        run: |
+          $package = Get-Content package.json -Raw | ConvertFrom-Json
+          $version = $package.version
+
+          $required = @(
+            "release\SRSB-Work-Management-Setup-$version.exe",
+            "release\SRSB-Work-Management-Setup-$version.exe.blockmap",
+            "release\latest.yml"
+          )
+
+          foreach ($file in $required) {
+            if (-not (Test-Path $file)) {
+              throw "Required release artifact was not generated: $file"
+            }
+          }
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $package = Get-Content package.json -Raw | ConvertFrom-Json
+          $version = $package.version
+          $tag = "${{ github.ref_name }}"
+
+          gh release create $tag `
+            "release\SRSB-Work-Management-Setup-$version.exe" `
+            "release\SRSB-Work-Management-Setup-$version.exe.blockmap" `
+            "release\latest.yml" `
+            --verify-tag `
+            --title "SRSB Work Management $tag" `
+            --notes-file "RELEASE-NOTES.md"

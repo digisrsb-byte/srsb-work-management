@@ -8,7 +8,7 @@ const money = (value) => new Intl.NumberFormat('en-IN', { style: 'currency', cur
 const label = (value) => String(value || '').replaceAll('_',' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 
 export default function AdminDashboard() {
-  const { user } = useAuth();
+  const { user, tenant } = useAuth();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
 
@@ -28,7 +28,7 @@ export default function AdminDashboard() {
       <StatCard label="Active Employees" value={data.employees?.active || 0} icon={Users} hint={`${data.employees?.total || 0} total employees`} to="/admin/employees" />
       <StatCard label="Active Clients" value={data.clients?.active || 0} icon={Building2} hint={`${data.clients?.total || 0} total clients`} to="/admin/clients" />
       <StatCard label="Active Requirements" value={data.openings?.active || 0} icon={BriefcaseBusiness} hint={`${data.openings?.total || 0} total requirements`} to="/admin/openings" />
-      <StatCard label="Candidates" value={data.candidates?.total || 0} icon={UserRoundSearch} hint="SRSB candidate database" to="/admin/candidates" />
+      <StatCard label="Candidates" value={data.candidates?.total || 0} icon={UserRoundSearch} hint={`${tenant?.companyName || 'Company'} candidate database`} to="/admin/candidates" />
       <StatCard label="Pending Tasks" value={data.tasks?.pending || 0} icon={ListTodo} hint={`${data.tasks?.overdue || 0} overdue`} to="/admin/tasks" />
       {user?.role === 'SUPER_ADMIN' && <><StatCard label="Invoice Revenue" value={money(data.invoices?.invoiced)} icon={IndianRupee} hint="Total recruitment invoices" to="/admin/invoices" /><StatCard label="Outstanding" value={money(data.invoices?.outstanding)} icon={WalletCards} hint={`${money(data.invoices?.received)} received`} to="/admin/invoices" /></>}
     </div>
