@@ -1,27 +1,14 @@
 const { app, BrowserWindow, shell, dialog, ipcMain, net } = require('electron');
-const { autoUpdater } = require('electron-updater');
 const path = require('path');
+const fs = require('fs');
+const { Readable } = require('stream');
+const { createHash } = require('crypto');
 
 const isDev = Boolean(process.env.ELECTRON_START_URL);
 const updateApiBase = 'https://srsb-work-management-production.up.railway.app/api/app-updates';
 const releasesPage = 'https://github.com/digisrsb-byte/srsb-work-management/releases';
 
 app.setAppUserModelId('com.srsb.hrms');
-
-let mainWindow = null;
-let checkingPromise = null;
-let updateState = {
-  success: true,
-  updateAvailable: false,
-  prepared: false,
-  currentVersion: null,
-  latestVersion: null,
-  releaseName: '',
-  notes: '',
-  publishedAt: null,
-  progress: null,
-  message: ''
-};
 
 function normalizeVersion(value) {
   return String(value || '').trim().replace(/^v/i, '').split('-')[0];
@@ -36,15 +23,11 @@ function isNewerVersion(latest, current) {
     if ((a[index] || 0) > (b[index] || 0)) return true;
     if ((a[index] || 0) < (b[index] || 0)) return false;
   }
+
   return false;
 }
 
-function send(channel, payload) {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.webContents.send(channel, payload);
-}
-
-async function fetchReleaseMetadata({ refresh = false } = {}) {
+async function fetchLatestRelease({ refresh = false } = {}) {
   const endpoint = `${updateApiBase}/latest${refresh ? '?refresh=1' : ''}`;
   const response = await net.fetch(endpoint, {
     headers: {
@@ -68,263 +51,135 @@ async function fetchReleaseMetadata({ refresh = false } = {}) {
     );
   }
 
-  return payload.data || {};
-}
-
-function statePayload(overrides = {}) {
+  const release = payload.data || {};
   return {
-    ...updateState,
     currentVersion: app.getVersion(),
-    ...overrides
+    latestVersion: normalizeVersion(release.latestVersion),
+    releaseName: release.releaseName || `Version ${release.latestVersion}`,
+    notes: release.notes || '',
+    publishedAt: release.publishedAt || null,
+    assetName: release.assetName || null,
+    assetSize: Number(release.assetSize || 0),
+    assetDigest: release.assetDigest || null,
+    downloadUrl: release.downloadUrl || null,
+    releaseUrl: release.releaseUrl || releasesPage
   };
 }
 
-async function buildAvailablePayload(info) {
-  let metadata = {};
-  try {
-    metadata = await fetchReleaseMetadata();
-  } catch (error) {
-    console.warn('Release notes metadata could not be loaded:', error.message);
-  }
-
-  const latestVersion = normalizeVersion(info?.version || metadata.latestVersion);
-
-  updateState = statePayload({
-    success: true,
-    updateAvailable: isNewerVersion(latestVersion, app.getVersion()),
-    prepared: false,
-    latestVersion,
-    releaseName: metadata.releaseName || `Version ${latestVersion}`,
-    notes: metadata.notes || '',
-    publishedAt: metadata.publishedAt || null,
-    progress: null,
-    message: ''
-  });
-
-  return updateState;
-}
-
-function configureAutoUpdater() {
-  // Production-grade behaviour:
-  // - check on startup
-  // - download automatically in the background
-  // - never interrupt active work
-  // - install when user chooses "Restart & Install" or when app quits normally
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.allowPrerelease = false;
-
-  // The Railway proxy only needs to expose latest.yml + the latest installer.
-  // Full downloads are reliable and avoid requiring previous-version blockmaps.
-  autoUpdater.disableDifferentialDownload = true;
-
-  autoUpdater.on('checking-for-update', () => {
-    updateState = statePayload({
-      success: true,
-      message: 'Checking for updates...'
-    });
-  });
-
-  autoUpdater.on('update-available', async (info) => {
-    const payload = await buildAvailablePayload(info);
-    send('app:update-available', payload);
-  });
-
-  autoUpdater.on('update-not-available', async (info) => {
-    let metadata = {};
-    try {
-      metadata = await fetchReleaseMetadata();
-    } catch {
-      // Update engine already confirmed no newer version.
-    }
-
-    updateState = statePayload({
-      success: true,
-      updateAvailable: false,
-      prepared: false,
-      latestVersion: normalizeVersion(info?.version || metadata.latestVersion || app.getVersion()),
-      releaseName: metadata.releaseName || '',
-      notes: metadata.notes || '',
-      publishedAt: metadata.publishedAt || null,
-      progress: null,
-      message: 'This application is up to date.'
-    });
-  });
-
-  autoUpdater.on('download-progress', (progress) => {
-    updateState = statePayload({
-      ...updateState,
-      updateAvailable: true,
-      prepared: false,
-      progress: Number(progress?.percent || 0)
-    });
-
-    send('app:update-progress', {
-      progress: Math.max(0, Math.min(100, Math.round(Number(progress?.percent || 0)))),
-      transferred: Number(progress?.transferred || 0),
-      total: Number(progress?.total || 0),
-      bytesPerSecond: Number(progress?.bytesPerSecond || 0),
-      latestVersion: updateState.latestVersion
-    });
-  });
-
-  autoUpdater.on('update-downloaded', async (info) => {
-    if (!updateState.notes) {
-      try {
-        const metadata = await fetchReleaseMetadata();
-        updateState.notes = metadata.notes || '';
-        updateState.releaseName = metadata.releaseName || updateState.releaseName;
-      } catch {
-        // The downloaded update is still valid even if release notes are unavailable.
-      }
-    }
-
-    updateState = statePayload({
-      ...updateState,
-      success: true,
-      updateAvailable: true,
-      prepared: true,
-      latestVersion: normalizeVersion(info?.version || updateState.latestVersion),
-      progress: 100,
-      message: 'Update downloaded and ready to install.'
-    });
-
-    send('app:update-ready', updateState);
-  });
-
-  autoUpdater.on('error', (error) => {
-    console.error('Automatic updater error:', error);
-
-    updateState = statePayload({
-      ...updateState,
-      success: false,
-      message: error?.message || 'Automatic update failed.'
-    });
-
-    send('app:update-download-error', {
-      message: updateState.message
-    });
-  });
-}
-
 async function checkForUpdate(_event, options = {}) {
-  if (isDev) {
-    return statePayload({
-      success: true,
-      updateAvailable: false,
-      prepared: false,
-      latestVersion: app.getVersion(),
-      message: 'Automatic updates are checked only in the installed desktop application.'
-    });
-  }
-
-  if (checkingPromise) return checkingPromise;
-
-  checkingPromise = (async () => {
-    let metadata = {};
-    try {
-      metadata = await fetchReleaseMetadata({
-        refresh: Boolean(options?.refresh)
-      });
-    } catch (error) {
-      console.warn('Release metadata check failed:', error.message);
-    }
-
-    const result = await autoUpdater.checkForUpdates();
-    const latestVersion = normalizeVersion(
-      result?.updateInfo?.version ||
-      metadata.latestVersion ||
-      updateState.latestVersion ||
-      app.getVersion()
-    );
-
-    updateState = statePayload({
-      ...updateState,
-      success: true,
-      updateAvailable: isNewerVersion(latestVersion, app.getVersion()),
-      latestVersion,
-      releaseName: metadata.releaseName || updateState.releaseName || `Version ${latestVersion}`,
-      notes: metadata.notes || updateState.notes || '',
-      publishedAt: metadata.publishedAt || updateState.publishedAt || null,
-      message: ''
-    });
-
-    return updateState;
-  })();
-
   try {
-    return await checkingPromise;
+    const release = await fetchLatestRelease({
+      refresh: Boolean(options?.refresh)
+    });
+
+    return {
+      success: true,
+      updateAvailable: isNewerVersion(release.latestVersion, release.currentVersion),
+      ...release
+    };
   } catch (error) {
-    return statePayload({
+    return {
       success: false,
       updateAvailable: false,
-      prepared: false,
-      message: error?.message || 'Unable to check for updates.',
+      currentVersion: app.getVersion(),
+      message: error.message,
       releaseUrl: releasesPage
-    });
-  } finally {
-    checkingPromise = null;
+    };
   }
 }
 
-async function prepareUpdate() {
-  const result = await checkForUpdate(null, { refresh: true });
-  return result;
+function expectedSha256(digest) {
+  const match = String(digest || '').trim().match(/^sha256:([a-f0-9]{64})$/i);
+  return match ? match[1].toLowerCase() : null;
 }
 
-async function downloadUpdate() {
-  try {
-    if (updateState.prepared) {
-      return statePayload({
-        success: true,
-        prepared: true
-      });
-    }
+async function downloadAndInstallUpdate(event) {
+  // Always retrieve the approved latest release in the trusted main process.
+  // Renderer-provided URLs are intentionally ignored.
+  const updateInfo = await fetchLatestRelease({ refresh: true });
 
-    if (!updateState.updateAvailable) {
-      const checked = await checkForUpdate(null, { refresh: true });
-      if (!checked.updateAvailable) return checked;
-    }
-
-    await autoUpdater.downloadUpdate();
-
-    return statePayload({
-      success: true,
-      updateAvailable: true,
-      prepared: updateState.prepared
-    });
-  } catch (error) {
-    return statePayload({
+  if (!isNewerVersion(updateInfo.latestVersion, updateInfo.currentVersion)) {
+    return {
       success: false,
-      message: error?.message || 'The update could not be downloaded.'
-    });
-  }
-}
-
-async function installPreparedUpdate() {
-  if (!updateState.prepared) {
-    return statePayload({
-      success: false,
-      message: 'The update has not finished downloading yet.'
-    });
+      message: 'This application is already up to date.'
+    };
   }
 
-  setImmediate(() => {
-    autoUpdater.quitAndInstall(false, true);
+  if (!updateInfo.downloadUrl) {
+    await shell.openExternal(updateInfo.releaseUrl || releasesPage);
+    return { success: false, openedReleasePage: true };
+  }
+
+  const safeAssetName = path.basename(
+    updateInfo.assetName ||
+    `SRSB-Work-Management-Setup-${updateInfo.latestVersion}.exe`
+  ).replace(/[^a-zA-Z0-9._-]/g, '_');
+
+  if (!safeAssetName.toLowerCase().endsWith('.exe')) {
+    throw new Error('The update server did not return a Windows installer.');
+  }
+
+  const target = path.join(app.getPath('temp'), safeAssetName);
+  const response = await net.fetch(updateInfo.downloadUrl, {
+    headers: {
+      Accept: 'application/octet-stream',
+      'Cache-Control': 'no-cache'
+    }
   });
 
-  return { success: true };
+  if (!response.ok || !response.body) {
+    throw new Error(`Update download failed with HTTP ${response.status}.`);
+  }
+
+  const total = Number(response.headers.get('content-length') || updateInfo.assetSize || 0);
+  let downloaded = 0;
+  const hash = createHash('sha256');
+  const nodeStream = Readable.fromWeb(response.body);
+  const output = fs.createWriteStream(target);
+
+  try {
+    await new Promise((resolve, reject) => {
+      nodeStream.on('data', (chunk) => {
+        downloaded += chunk.length;
+        hash.update(chunk);
+        const progress = total ? Math.min(100, Math.round((downloaded / total) * 100)) : null;
+        event.sender.send('app:update-progress', { downloaded, total, progress });
+      });
+      nodeStream.on('error', reject);
+      output.on('error', reject);
+      output.on('finish', resolve);
+      nodeStream.pipe(output);
+    });
+
+    const expected = expectedSha256(updateInfo.assetDigest);
+    const actual = hash.digest('hex').toLowerCase();
+
+    if (expected && expected !== actual) {
+      throw new Error('The downloaded update failed its integrity check.');
+    }
+
+    const launchError = await shell.openPath(target);
+    if (launchError) throw new Error(launchError);
+
+    setTimeout(() => app.quit(), 1000);
+    return { success: true, target };
+  } catch (error) {
+    try {
+      fs.rmSync(target, { force: true });
+    } catch {
+      // Ignore cleanup failures and report the original update error.
+    }
+    throw error;
+  }
 }
 
 ipcMain.handle('app:get-version', () => app.getVersion());
 ipcMain.handle('app:check-update', checkForUpdate);
-ipcMain.handle('app:prepare-update', prepareUpdate);
-ipcMain.handle('app:download-update', downloadUpdate);
-ipcMain.handle('app:install-prepared-update', installPreparedUpdate);
+ipcMain.handle('app:download-update', downloadAndInstallUpdate);
 ipcMain.handle('app:open-releases', () => shell.openExternal(releasesPage));
 
 function createWindow() {
-  mainWindow = new BrowserWindow({
+  const win = new BrowserWindow({
     title: 'SRSB Work Management',
     icon: path.join(__dirname, 'app-icon.png'),
     width: 1440,
@@ -342,29 +197,17 @@ function createWindow() {
     }
   });
 
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+  win.once('ready-to-show', () => win.show());
 
-  mainWindow.webContents.on(
-    'did-fail-load',
-    (_event, errorCode, errorDescription, validatedURL) => {
-      console.error('Renderer failed to load:', {
-        errorCode,
-        errorDescription,
-        validatedURL
-      });
-    }
-  );
+  win.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    console.error('Renderer failed to load:', { errorCode, errorDescription, validatedURL });
+  });
 
   if (isDev) {
-    mainWindow.loadURL(process.env.ELECTRON_START_URL);
+    win.loadURL(process.env.ELECTRON_START_URL);
   } else {
-    const frontendEntry = path.join(
-      process.resourcesPath,
-      'frontend',
-      'index.html'
-    );
-
-    mainWindow.loadFile(frontendEntry).catch((error) => {
+    const frontendEntry = path.join(process.resourcesPath, 'frontend', 'index.html');
+    win.loadFile(frontendEntry).catch((error) => {
       console.error('Unable to load packaged frontend:', error);
       dialog.showErrorBox(
         'SRSB Work Management could not start',
@@ -373,31 +216,20 @@ function createWindow() {
     });
   }
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http')) shell.openExternal(url);
     return { action: 'deny' };
   });
 
-  mainWindow.webContents.once('did-finish-load', () => {
+  win.webContents.once('did-finish-load', async () => {
     if (isDev) return;
-
-    // Do not slow down application startup. Check shortly after the UI is ready.
-    setTimeout(() => {
-      checkForUpdate(null, { refresh: false }).catch((error) => {
-        console.error('Startup update check failed:', error);
-      });
-    }, 2500);
-  });
-
-  mainWindow.on('closed', () => {
-    mainWindow = null;
+    const result = await checkForUpdate(null, { refresh: false });
+    if (result.updateAvailable) win.webContents.send('app:update-available', result);
   });
 }
 
 app.whenReady().then(() => {
-  configureAutoUpdater();
   createWindow();
-
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

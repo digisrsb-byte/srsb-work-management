@@ -82,7 +82,6 @@ export default function Settings() {
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState(null);
-  const [updateReady, setUpdateReady] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [savingPassword, setSavingPassword] = useState(false);
@@ -91,30 +90,10 @@ export default function Settings() {
 
   useEffect(() => {
     desktop?.getVersion?.().then(setVersion).catch(() => setVersion('Web'));
-
-    const removeProgress = desktop?.onUpdateProgress?.((data) => {
-      setDownloading(true);
-      setProgress(data.progress);
-    });
-
-    const removeReady = desktop?.onUpdateReady?.((data) => {
-      setUpdateInfo((current) => ({ ...(current || {}), ...(data || {}) }));
-      setDownloading(false);
-      setProgress(100);
-      setUpdateReady(true);
-      setMessage('Update downloaded. Restart the application to install it.');
-    });
-
-    const removeUpdateError = desktop?.onUpdateDownloadError?.((data) => {
-      setDownloading(false);
-      setError(data?.message || 'Automatic update download failed.');
-    });
-
-    return () => {
-      removeProgress?.();
-      removeReady?.();
-      removeUpdateError?.();
-    };
+    const removeProgress = desktop?.onUpdateProgress?.((data) =>
+      setProgress(data.progress)
+    );
+    return () => removeProgress?.();
   }, [desktop]);
 
   useEffect(() => {
@@ -285,7 +264,6 @@ export default function Settings() {
       setError('');
       const result = await desktop.checkForUpdates({ refresh: true });
       setUpdateInfo(result);
-      setUpdateReady(Boolean(result?.prepared));
       setMessage(
         result.updateAvailable
           ? `Version ${result.latestVersion} is available.`
@@ -302,30 +280,9 @@ export default function Settings() {
 
   async function installUpdate() {
     try {
-      setError('');
-
-      if (updateReady && desktop?.installPreparedUpdate) {
-        const result = await desktop.installPreparedUpdate();
-        if (!result?.success) {
-          setError(result?.message || 'The update could not be installed.');
-        }
-        return;
-      }
-
       setDownloading(true);
-      const result = await desktop.downloadUpdate();
-
-      if (!result?.success) {
-        setDownloading(false);
-        setError(result?.message || 'The update could not be downloaded.');
-        return;
-      }
-
-      if (result?.prepared) {
-        setDownloading(false);
-        setProgress(100);
-        setUpdateReady(true);
-      }
+      setError('');
+      await desktop.downloadUpdate(updateInfo);
     } catch (requestError) {
       setError(
         requestError?.message || 'The update could not be downloaded.'
@@ -426,10 +383,9 @@ export default function Settings() {
                 />
               </label>
               <label className="form-group">
-                <span>Invoice Email</span>
+                <span>Email</span>
                 <input
                   className="input"
-                  type="email"
                   value={companyForm.email}
                   onChange={(event) =>
                     setCompanyForm((current) => ({
@@ -781,25 +737,6 @@ export default function Settings() {
               <strong>{updateInfo.latestVersion}</strong>
             </div>
           )}
-          {updateInfo?.notes && (
-            <div className="update-feature-list update-feature-list-card">
-              <b>What's New</b>
-              <ul>
-                {String(updateInfo.notes)
-                  .split(/\r?\n/)
-                  .map((line) =>
-                    line
-                      .replace(/^#{1,6}\s*/, '')
-                      .replace(/^[-*+]\s*/, '')
-                      .replace(/^\d+[.)]\s*/, '')
-                      .trim()
-                  )
-                  .filter(Boolean)
-                  .slice(0, 8)
-                  .map((feature) => <li key={feature}>{feature}</li>)}
-              </ul>
-            </div>
-          )}
           {downloading && (
             <div className="download-progress">
               <div style={{ width: `${progress || 5}%` }} />
@@ -826,14 +763,10 @@ export default function Settings() {
                 className="btn btn-primary"
                 type="button"
                 onClick={installUpdate}
-                disabled={downloading && !updateReady}
+                disabled={downloading}
               >
                 <DownloadCloud size={17} />{' '}
-                {updateReady
-                  ? 'Restart & Install'
-                  : downloading
-                    ? 'Downloading…'
-                    : 'Download & Install'}
+                {downloading ? 'Downloading…' : 'Update Now'}
               </button>
             )}
           </div>

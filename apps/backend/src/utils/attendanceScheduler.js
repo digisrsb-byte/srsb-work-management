@@ -1,5 +1,5 @@
 import cron from 'node-cron';
-import { pool, runForAllTenants } from '../config/database.js';
+import { pool } from '../config/database.js';
 import { INDIA_DATE_SQL } from './indiaTime.js';
 
 const timezone = 'Asia/Kolkata';
@@ -37,6 +37,21 @@ async function sendPunchInReminders() {
          FROM holidays h
          WHERE h.holiday_date = ${INDIA_DATE_SQL}
            AND (h.department_id IS NULL OR h.department_id = e.department_id)
+       )
+       AND NOT EXISTS (
+         SELECT 1
+         FROM leave_requests lr
+         WHERE lr.employee_id = e.id
+           AND lr.status = 'APPROVED'
+           AND CURDATE() BETWEEN lr.start_date AND lr.end_date
+       )
+       AND NOT EXISTS (
+         SELECT 1
+         FROM attendance la
+         WHERE la.employee_id = e.id
+           AND la.attendance_date = CURDATE()
+           AND la.status IN ('LEAVE', 'HALF_DAY', 'HOLIDAY', 'WEEK_OFF', 'ABSENT')
+           AND la.punch_in IS NULL
        )
        AND NOT EXISTS (
          SELECT 1
@@ -237,24 +252,10 @@ async function sendMonthlyAttendanceSummaries() {
 
 async function safelyRun(name, job) {
   try {
-    await runForAllTenants(async (tenant) => {
-      try {
-        await job();
-        console.log(
-          `${name} completed for ${tenant.tenant_code}.`
-        );
-      } catch (error) {
-        console.error(
-          `${name} failed for ${tenant.tenant_code}:`,
-          error.message
-        );
-      }
-    });
+    await job();
+    console.log(`${name} completed.`);
   } catch (error) {
-    console.error(
-      `${name} tenant dispatch failed:`,
-      error.message
-    );
+    console.error(`${name} failed:`, error.message);
   }
 }
 

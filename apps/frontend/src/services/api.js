@@ -42,7 +42,6 @@ api.interceptors.response.use(
     if (savedToken && (status === 401 || suspended)) {
       localStorage.removeItem('srsb_token');
       localStorage.removeItem('srsb_user');
-      localStorage.removeItem('srsb_tenant');
 
       sessionStorage.setItem(
         'srsb_session_message',

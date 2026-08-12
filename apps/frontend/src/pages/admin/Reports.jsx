@@ -5,7 +5,6 @@ import {
 import api from '../../services/api.js';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { useAuth } from '../../context/AuthContext.jsx';
 
 function formatDate(date) {
   if (!date) return '-';
@@ -57,19 +56,6 @@ function SummaryCard({ title, value, subtitle }) {
 }
 
 export default function Reports() {
-  const { tenant } = useAuth();
-  const companyName =
-    tenant?.legalName ||
-    tenant?.companyName ||
-    'Company';
-  const companyFileName = String(
-    tenant?.companyName ||
-    'Company'
-  )
-    .replace(/[^A-Za-z0-9_-]+/g, '-')
-    .replace(/^-+|-+$/g, '') ||
-    'Company';
-
   const currentMonth = useMemo(() => getMonthDates(0), []);
 
   const [period, setPeriod] = useState('THIS_MONTH');
@@ -159,7 +145,7 @@ export default function Reports() {
     if (!report) return;
 
     const rows = [
-      [`${companyName} Company Report`],
+      ['SRSB Workforce Solutions Company Report'],
       ['Start Date', report.reportPeriod.startDate],
       ['End Date', report.reportPeriod.endDate],
       ['Generated At', report.generatedAt],
@@ -330,7 +316,7 @@ export default function Reports() {
     const link = document.createElement('a');
 
     link.href = url;
-    link.download = `${companyFileName}-Company-Report-${startDate}-to-${endDate}.csv`;
+    link.download = `SRSB-Company-Report-${startDate}-to-${endDate}.csv`;
 
     document.body.appendChild(link);
     link.click();
@@ -352,7 +338,7 @@ export default function Reports() {
 
   pdf.setFontSize(18);
   pdf.text(
-    companyName,
+    'SRSB Workforce Solutions Pvt. Ltd.',
     pageWidth / 2,
     15,
     { align: 'center' }
@@ -577,7 +563,7 @@ export default function Reports() {
   }
 
   pdf.save(
-    `${companyFileName}-Company-Report-${startDate}-to-${endDate}.pdf`
+    `SRSB-Company-Report-${startDate}-to-${endDate}.pdf`
   );
 }
 
@@ -664,7 +650,7 @@ export default function Reports() {
         <div className="report-content" id="company-report">
           <div className="report-title-row">
             <div>
-              <p>{companyName}</p>
+              <p>SRSB Workforce Solutions Pvt. Ltd.</p>
               <h2>Company Performance Report</h2>
               <span>
                 {formatDate(report.reportPeriod.startDate)}

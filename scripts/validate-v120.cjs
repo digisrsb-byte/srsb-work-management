@@ -1,4 +1,4 @@
-﻿const fs = require('fs');
+const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
@@ -23,11 +23,11 @@ function requireText(relative, values) {
 const packages = ['package.json','apps/backend/package.json','apps/frontend/package.json','apps/desktop/package.json'];
 for (const relative of packages) {
   const data = JSON.parse(read(relative));
-  if (data.version !== '1.2.5') fail(`${relative} version is ${data.version}, expected 1.2.5`);
-  else pass(`${relative} version 1.2.5`);
+  if (data.version !== '1.2.2') fail(`${relative} version is ${data.version}, expected 1.2.2`);
+  else pass(`${relative} version 1.2.2`);
 }
 
-
+requireText('apps/backend/src/server.js', ['ensureV120Schema', 'await ensureV120Schema()']);
 requireText('apps/backend/src/migrations/ensureV120Schema.js', ['invoice_items', 'invoice_settings', 'task_extension_requests', 'show_greeting', 'date_of_birth', 'bank_account_number VARCHAR(80) NULL']);
 requireText('apps/backend/src/controllers/candidateController.js', ['getCandidateReferenceData', 'linkCandidateApplication', 'listCandidatePlacements']);
 requireText('apps/backend/src/controllers/invoiceController.js', ['PERCENTAGE_CTC', 'invoice_items', 'getInvoiceSettings']);
@@ -173,8 +173,4 @@ process.stderr.write(backendValidation.stderr || '');
 if (backendValidation.status !== 0) fail('Backend JavaScript validation'); else pass('Backend JavaScript validation');
 
 if (failed) process.exit(1);
-console.log('\nSRSB Work Management 1.2.5 source validation: PASS');
-
-
-requireText('apps/backend/src/server.js', ['migrateAllTenants', 'await migrateAllTenants()']);
-requireText('apps/backend/src/services/tenantMigrationService.js', ['ensureV120Schema', 'await ensureV120Schema()']);
+console.log('\nSRSB Work Management 1.2.2 source validation: PASS');
