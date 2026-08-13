@@ -1148,3 +1148,25 @@ textarea { resize: vertical; }
   .setup-side h1 { font-size: 30px; }
   .setup-upload-grid { grid-template-columns: 1fr; }
 }
+
+.update-feature-list {
+  margin-top: 7px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.update-feature-list b {
+  display: block;
+  margin-bottom: 3px;
+}
+.update-feature-list ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 2px;
+}
+.update-feature-list-card {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-muted);
+}

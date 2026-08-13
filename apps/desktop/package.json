@@ -1,6 +1,6 @@
 {
   "name": "srsb-hrms-desktop",
-  "version": "1.2.2",
+  "version": "1.2.5",
   "private": true,
   "main": "main.cjs",
   "scripts": {

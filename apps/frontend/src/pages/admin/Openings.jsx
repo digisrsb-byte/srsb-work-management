@@ -9,6 +9,8 @@ import {
   BriefcaseBusiness,
   Building2,
   CalendarDays,
+  ChevronDown,
+  ChevronRight,
   MapPin,
   Plus,
   Search,
@@ -81,7 +83,7 @@ export default function Openings() {
 
   const [form, setForm] = useState(initialForm);
   const [search, setSearch] = useState('');
-  const [selectedClientId, setSelectedClientId] =
+  const [expandedClientId, setExpandedClientId] =
     useState('');
 
   const [loading, setLoading] = useState(true);
@@ -119,9 +121,6 @@ export default function Openings() {
         openingParams.search = debouncedSearch.trim();
       }
 
-      if (selectedClientId) {
-        openingParams.clientId = selectedClientId;
-      }
 
       const [
         openingsResult,
@@ -179,7 +178,7 @@ export default function Openings() {
       }
       hasLoadedRef.current = true;
     }
-  }, [debouncedSearch, selectedClientId]);
+  }, [debouncedSearch]);
 
   useEffect(() => {
     loadData();
@@ -328,7 +327,7 @@ export default function Openings() {
     const keyword = search.trim().toLowerCase();
 
     return openings.filter((opening) => {
-      const matchesSearch =
+      return (
         !keyword ||
         [
           opening.company_name,
@@ -341,42 +340,61 @@ export default function Openings() {
           .filter(Boolean)
           .join(' ')
           .toLowerCase()
-          .includes(keyword);
-
-      const matchesClient =
-        !selectedClientId ||
-        Number(opening.client_id) ===
-          Number(selectedClientId);
-
-      return matchesSearch && matchesClient;
+          .includes(keyword)
+      );
     });
-  }, [openings, search, selectedClientId]);
+  }, [openings, search]);
 
   const openingsByClient = useMemo(() => {
-    return clients.map((client) => {
-      const clientOpenings = openings.filter(
-        (opening) =>
-          Number(opening.client_id) === client.id
-      );
-
-      return {
-        ...client,
-        openings: clientOpenings,
-        totalOpenings: clientOpenings.reduce(
-          (sum, opening) =>
-            sum +
-            Number(opening.openings_count || 0),
-          0
-        ),
-        filledPositions: clientOpenings.reduce(
-          (sum, opening) =>
-            sum +
-            Number(opening.filled_positions || 0),
-          0
+    return [...clients]
+      .sort((first, second) =>
+        String(first.company_name || '').localeCompare(
+          String(second.company_name || ''),
+          'en',
+          { sensitivity: 'base' }
         )
-      };
+      )
+      .map((client) => {
+        const clientOpenings = filteredOpenings.filter(
+          (opening) =>
+            Number(opening.client_id) === Number(client.id)
+        );
+
+        return {
+          ...client,
+          openings: clientOpenings,
+          totalOpenings: clientOpenings.reduce(
+            (sum, opening) =>
+              sum + Number(opening.openings_count || 0),
+            0
+          ),
+          filledPositions: clientOpenings.reduce(
+            (sum, opening) =>
+              sum + Number(opening.filled_positions || 0),
+            0
+          )
+        };
+      });
+  }, [clients, filteredOpenings]);
+
+  const visibleClientGroups = useMemo(() => {
+    const keyword = search.trim().toLowerCase();
+
+    if (!keyword) return openingsByClient;
+
+    return openingsByClient.filter((client) => {
+      const companyMatches = [
+        client.company_name,
+        client.industry
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(keyword);
+
+      return companyMatches || client.openings.length > 0;
     });
-  }, [clients, openings]);
+  }, [openingsByClient, search]);
 
   if (loading) {
     return (
@@ -641,6 +659,136 @@ export default function Openings() {
             border-radius: 999px;
           }
 
+          .requirements-accordion {
+            margin-bottom: 24px;
+            padding: 0;
+            overflow: hidden;
+          }
+
+          .requirements-accordion-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface-muted);
+          }
+
+          .requirements-accordion-head span {
+            color: var(--text-muted);
+            font-size: 12px;
+          }
+
+          .requirements-company-row {
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+          }
+
+          .requirements-company-row:last-child {
+            border-bottom: 0;
+          }
+
+          .requirements-company-trigger {
+            width: 100%;
+            border: 0;
+            background: transparent;
+            color: var(--text);
+            font: inherit;
+            cursor: pointer;
+            display: grid;
+            grid-template-columns: 28px 44px minmax(220px, 1fr) auto;
+            gap: 12px;
+            align-items: center;
+            padding: 17px 18px;
+            text-align: left;
+          }
+
+          .requirements-company-trigger:hover {
+            background: var(--surface-muted);
+          }
+
+          .requirements-company-chevron {
+            color: var(--text-muted);
+            display: grid;
+            place-items: center;
+          }
+
+          .requirements-company-icon {
+            width: 42px;
+            height: 42px;
+            border-radius: 12px;
+            display: grid;
+            place-items: center;
+            color: #0f766e;
+            background: rgba(20, 184, 166, 0.14);
+          }
+
+          .requirements-company-copy {
+            min-width: 0;
+            display: grid;
+            gap: 3px;
+          }
+
+          .requirements-company-copy strong {
+            font-size: 15px;
+          }
+
+          .requirements-company-copy small {
+            color: var(--text-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+
+          .requirements-company-stats {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+            flex-wrap: wrap;
+          }
+
+          .requirements-company-stat {
+            min-width: 74px;
+            padding: 7px 10px;
+            border-radius: 10px;
+            text-align: center;
+            background: var(--surface-muted);
+          }
+
+          .requirements-company-stat strong {
+            display: block;
+            font-size: 14px;
+          }
+
+          .requirements-company-stat span {
+            display: block;
+            margin-top: 2px;
+            color: var(--text-muted);
+            font-size: 10px;
+          }
+
+          .requirements-company-expanded {
+            padding: 0 18px 18px 102px;
+          }
+
+          .requirements-company-expanded .opening-list {
+            margin-top: 0;
+          }
+
+          .requirements-company-expanded .opening-card {
+            border-radius: 14px;
+          }
+
+          .requirements-company-empty {
+            border: 1px dashed var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            color: var(--text-muted);
+            background: var(--surface-muted);
+          }
+
           @media (max-width: 980px) {
             .opening-form-grid {
               grid-template-columns:
@@ -649,6 +797,21 @@ export default function Openings() {
           }
 
           @media (max-width: 650px) {
+            .requirements-company-trigger {
+              grid-template-columns: 24px 40px 1fr;
+              padding: 14px;
+            }
+
+            .requirements-company-stats {
+              grid-column: 1 / -1;
+              padding-left: 64px;
+              justify-content: flex-start;
+            }
+
+            .requirements-company-expanded {
+              padding: 0 14px 14px;
+            }
+
             .opening-form-grid {
               grid-template-columns: 1fr;
             }
@@ -737,125 +900,278 @@ export default function Openings() {
         </div>
       )}
 
-      <div className="client-cards">
-        <div
-          className={`client-card ${
-            selectedClientId === ''
-              ? 'client-card-selected'
-              : ''
-          }`}
-          onClick={() => setSelectedClientId('')}
-        >
-          <div className="client-card-heading">
-            <div>
-              <h3 className="client-card-title">
-                All Brands
-              </h3>
+      <div className="card requirements-accordion">
+        <div className="requirements-accordion-head">
+          <strong>
+            {visibleClientGroups.length} Compan
+            {visibleClientGroups.length === 1 ? 'y' : 'ies'}
+          </strong>
 
-              <span className="page-subtitle">
-                View every requirement
-              </span>
-            </div>
-
-            <Building2 size={22} />
-          </div>
-
-          <div className="client-card-meta">
-            <div className="client-card-stat">
-              <span className="client-card-label">
-                Companies
-              </span>
-
-              <span className="client-card-value">
-                {clients.length}
-              </span>
-            </div>
-
-            <div className="client-card-stat">
-              <span className="client-card-label">
-                Requirements
-              </span>
-
-              <span className="client-card-value">
-                {openings.length}
-              </span>
-            </div>
-          </div>
+          <span>
+            {filteredOpenings.length} Requirement
+            {filteredOpenings.length === 1 ? '' : 's'}
+            {' · '}Sorted by company name
+          </span>
         </div>
 
-        {openingsByClient.map((client) => (
-          <div
-            key={client.id}
-            className={`client-card ${
-              Number(selectedClientId) === client.id
-                ? 'client-card-selected'
-                : ''
-            }`}
-            onClick={() =>
-              setSelectedClientId(String(client.id))
-            }
-          >
-            <div className="client-card-heading">
-              <div>
-                <h3 className="client-card-title">
-                  {client.company_name}
-                </h3>
+        {visibleClientGroups.map((client) => {
+          const expanded =
+            Number(expandedClientId) === Number(client.id);
 
-                <span className="page-subtitle">
-                  {client.industry || 'Industry not added'}
-                </span>
-              </div>
+          const remainingPositions = Math.max(
+            client.totalOpenings - client.filledPositions,
+            0
+          );
 
-              <Building2 size={22} />
-            </div>
-
-            <div className="client-card-meta">
-              <div className="client-card-stat">
-                <span className="client-card-label">
-                  Job Roles
+          return (
+            <div
+              className="requirements-company-row"
+              key={client.id}
+            >
+              <button
+                type="button"
+                className="requirements-company-trigger"
+                onClick={() =>
+                  setExpandedClientId(
+                    expanded ? '' : String(client.id)
+                  )
+                }
+                aria-expanded={expanded}
+              >
+                <span className="requirements-company-chevron">
+                  {expanded
+                    ? <ChevronDown size={20} />
+                    : <ChevronRight size={20} />}
                 </span>
 
-                <span className="client-card-value">
-                  {client.openings.length}
-                </span>
-              </div>
-
-              <div className="client-card-stat">
-                <span className="client-card-label">
-                  Total Positions
+                <span className="requirements-company-icon">
+                  <Building2 size={20} />
                 </span>
 
-                <span className="client-card-value">
-                  {client.totalOpenings}
-                </span>
-              </div>
-
-              <div className="client-card-stat">
-                <span className="client-card-label">
-                  Filled
+                <span className="requirements-company-copy">
+                  <strong>{client.company_name}</strong>
+                  <small>
+                    {client.industry || 'Industry not added'}
+                  </small>
                 </span>
 
-                <span className="client-card-value">
-                  {client.filledPositions}
-                </span>
-              </div>
+                <span className="requirements-company-stats">
+                  <span className="requirements-company-stat">
+                    <strong>{client.openings.length}</strong>
+                    <span>Job Roles</span>
+                  </span>
 
-              <div className="client-card-stat">
-                <span className="client-card-label">
-                  Remaining
-                </span>
+                  <span className="requirements-company-stat">
+                    <strong>{client.totalOpenings}</strong>
+                    <span>Positions</span>
+                  </span>
 
-                <span className="client-card-value">
-                  {Math.max(
-                    client.totalOpenings -
-                      client.filledPositions,
-                    0
+                  <span className="requirements-company-stat">
+                    <strong>{client.filledPositions}</strong>
+                    <span>Filled</span>
+                  </span>
+
+                  <span className="requirements-company-stat">
+                    <strong>{remainingPositions}</strong>
+                    <span>Remaining</span>
+                  </span>
+                </span>
+              </button>
+
+              {expanded && (
+                <div className="requirements-company-expanded">
+                  {client.openings.length ? (
+                    <div className="opening-list">
+                      {client.openings.map((opening) => {
+                        const totalPositions = Number(
+                          opening.openings_count || 0
+                        );
+
+                        const filledPositions = Number(
+                          opening.filled_positions || 0
+                        );
+
+                        const remaining = Math.max(
+                          Number(
+                            opening.remaining_positions ??
+                              totalPositions - filledPositions
+                          ),
+                          0
+                        );
+
+                        const progress =
+                          totalPositions > 0
+                            ? Math.min(
+                                Math.round(
+                                  (filledPositions /
+                                    totalPositions) *
+                                    100
+                                ),
+                                100
+                              )
+                            : 0;
+
+                        return (
+                          <article
+                            className="opening-card"
+                            key={opening.id}
+                          >
+                            <div className="opening-card-header">
+                              <div>
+                                <h3 className="opening-card-title">
+                                  {opening.title}
+                                </h3>
+
+                                <div className="opening-company">
+                                  {opening.company_name}
+                                </div>
+                              </div>
+
+                              <div className="opening-card-badges">
+                                <span
+                                  className={`badge badge-${String(
+                                    opening.priority || 'MEDIUM'
+                                  ).toLowerCase()}`}
+                                >
+                                  {formatText(opening.priority)}
+                                </span>
+
+                                <span
+                                  className={`badge badge-${String(
+                                    opening.status || 'OPEN'
+                                  ).toLowerCase()}`}
+                                >
+                                  {formatText(opening.status)}
+                                </span>
+
+                                {canManageRequirement && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      className="btn btn-secondary btn-compact"
+                                      onClick={() =>
+                                        startEditingRequirement(
+                                          opening
+                                        )
+                                      }
+                                    >
+                                      <Pencil size={15} />
+                                      Edit
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      className="btn btn-danger btn-compact"
+                                      onClick={() =>
+                                        deleteOpening(opening)
+                                      }
+                                    >
+                                      <Trash2 size={15} />
+                                      Delete
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="opening-details-grid">
+                              <div className="opening-detail">
+                                <span className="opening-detail-label">
+                                  <BriefcaseBusiness size={14} />
+                                  Positions
+                                </span>
+                                <span className="opening-detail-value">
+                                  {totalPositions}
+                                </span>
+                              </div>
+
+                              <div className="opening-detail">
+                                <span className="opening-detail-label">
+                                  <MapPin size={14} />
+                                  Location
+                                </span>
+                                <span className="opening-detail-value">
+                                  {opening.location || 'Not added'}
+                                </span>
+                              </div>
+
+                              <div className="opening-detail">
+                                <span className="opening-detail-label">
+                                  <UserRound size={14} />
+                                  Handled By
+                                </span>
+                                <span className="opening-detail-value">
+                                  {opening.assigned_recruiter_name ||
+                                    'Not Assigned'}
+                                </span>
+                              </div>
+
+                              <div className="opening-detail">
+                                <span className="opening-detail-label">
+                                  <CalendarDays size={14} />
+                                  Target Date
+                                </span>
+                                <span className="opening-detail-value">
+                                  {formatDate(
+                                    opening.target_close_date
+                                  )}
+                                </span>
+                              </div>
+
+                              <div className="opening-detail">
+                                <span className="opening-detail-label">
+                                  Filled Positions
+                                </span>
+                                <span className="opening-detail-value">
+                                  {filledPositions}
+                                </span>
+                              </div>
+
+                              <div className="opening-detail">
+                                <span className="opening-detail-label">
+                                  Remaining Positions
+                                </span>
+                                <span className="opening-detail-value">
+                                  {remaining}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="opening-progress">
+                              <div className="opening-progress-top">
+                                <span>Placement progress</span>
+                                <strong>{progress}%</strong>
+                              </div>
+
+                              <div className="opening-progress-track">
+                                <div
+                                  className="opening-progress-fill"
+                                  style={{
+                                    width: `${progress}%`
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="requirements-company-empty">
+                      No matching requirements for this company.
+                    </div>
                   )}
-                </span>
-              </div>
+                </div>
+              )}
             </div>
+          );
+        })}
+
+        {!visibleClientGroups.length && clients.length > 0 && (
+          <div className="requirements-company-empty">
+            No company or requirement matches your search.
           </div>
-        ))}
+        )}
       </div>
 
       {!clients.length && (
@@ -887,197 +1203,6 @@ export default function Openings() {
           </button>
         </div>
       )}
-
-      <div className="section-heading" style={{ marginTop: 6 }}>
-        <div>
-          <h2>Saved Requirements</h2>
-          <p className="page-subtitle">
-            Select a company above to filter its requirements. Use Edit or Delete on each saved requirement.
-          </p>
-        </div>
-      </div>
-
-      <div className="opening-list">
-        {filteredOpenings.map((opening) => {
-          const totalPositions = Number(
-            opening.openings_count || 0
-          );
-
-          const filledPositions = Number(
-            opening.filled_positions || 0
-          );
-
-          const progress =
-            totalPositions > 0
-              ? Math.min(
-                  Math.round(
-                    (filledPositions /
-                      totalPositions) *
-                      100
-                  ),
-                  100
-                )
-              : 0;
-
-          return (
-            <article
-              className="opening-card"
-              key={opening.id}
-            >
-              <div className="opening-card-header">
-                <div>
-                  <h3 className="opening-card-title">
-                    {opening.title}
-                  </h3>
-
-                  <div className="opening-company">
-                    {opening.company_name}
-                  </div>
-                </div>
-
-                <div className="opening-card-badges">
-                  <span
-                    className={`badge badge-${String(
-                      opening.priority || 'MEDIUM'
-                    ).toLowerCase()}`}
-                  >
-                    {formatText(opening.priority)}
-                  </span>
-
-                  <span
-                    className={`badge badge-${String(
-                      opening.status || 'OPEN'
-                    ).toLowerCase()}`}
-                  >
-                    {formatText(opening.status)}
-                  </span>
-
-                  {canManageRequirement && (
-                    <>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-compact"
-                        onClick={() =>
-                          startEditingRequirement(opening)
-                        }
-                      >
-                        <Pencil size={15} />
-                        Edit
-                      </button>
-
-                      <button
-                        type="button"
-                        className="btn btn-danger btn-compact"
-                        onClick={() => deleteOpening(opening)}
-                      >
-                        <Trash2 size={15} />
-                        Delete
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <div className="opening-details-grid">
-                <div className="opening-detail">
-                  <span className="opening-detail-label">
-                    <BriefcaseBusiness size={14} />
-                    Positions
-                  </span>
-
-                  <span className="opening-detail-value">
-                    {opening.openings_count || 0}
-                  </span>
-                </div>
-
-                <div className="opening-detail">
-                  <span className="opening-detail-label">
-                    <MapPin size={14} />
-                    Location
-                  </span>
-
-                  <span className="opening-detail-value">
-                    {opening.location || 'Not added'}
-                  </span>
-                </div>
-
-                <div className="opening-detail">
-                  <span className="opening-detail-label">
-                    <UserRound size={14} />
-                    Handled By
-                  </span>
-
-                  <span className="opening-detail-value">
-                    {opening.assigned_recruiter_name ||
-                      'Not Assigned'}
-                  </span>
-                </div>
-
-                <div className="opening-detail">
-                  <span className="opening-detail-label">
-                    <CalendarDays size={14} />
-                    Target Date
-                  </span>
-
-                  <span className="opening-detail-value">
-                    {formatDate(
-                      opening.target_close_date
-                    )}
-                  </span>
-                </div>
-
-                <div className="opening-detail">
-                  <span className="opening-detail-label">
-                    Filled Positions
-                  </span>
-
-                  <span className="opening-detail-value">
-                    {filledPositions}
-                  </span>
-                </div>
-
-                <div className="opening-detail">
-                  <span className="opening-detail-label">
-                    Remaining Positions
-                  </span>
-
-                  <span className="opening-detail-value">
-                    {opening.remaining_positions || 0}
-                  </span>
-                </div>
-              </div>
-
-              <div className="opening-progress">
-                <div className="opening-progress-top">
-                  <span>
-                    Placement progress
-                  </span>
-
-                  <strong>{progress}%</strong>
-                </div>
-
-                <div className="opening-progress-track">
-                  <div
-                    className="opening-progress-fill"
-                    style={{
-                      width: `${progress}%`
-                    }}
-                  />
-                </div>
-              </div>
-            </article>
-          );
-        })}
-
-        {!filteredOpenings.length && (
-          <div className="card">
-            {canManageRequirement
-              ? 'No saved requirements found for the selected company. Use Add Requirement to create one.'
-              : 'No job requirements found for the selected company.'}
-          </div>
-        )}
-      </div>
-
 
       {canManageRequirement && (
       <form ref={addFormRef} className="card" onSubmit={saveOpening}>
