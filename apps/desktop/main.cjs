@@ -10,6 +10,9 @@ const releasesPage = 'https://github.com/digisrsb-byte/srsb-work-management/rele
 
 app.setAppUserModelId('com.srsb.hrms');
 
+let preparedUpdate = null;
+let preparePromise = null;
+
 function normalizeVersion(value) {
   return String(value || '').trim().replace(/^v/i, '').split('-')[0];
 }
@@ -93,89 +96,156 @@ function expectedSha256(digest) {
   return match ? match[1].toLowerCase() : null;
 }
 
-async function downloadAndInstallUpdate(event) {
-  // Always retrieve the approved latest release in the trusted main process.
-  // Renderer-provided URLs are intentionally ignored.
-  const updateInfo = await fetchLatestRelease({ refresh: true });
+async function prepareUpdateDownload(sender, { refresh = true } = {}) {
+  if (
+    preparedUpdate &&
+    preparedUpdate.target &&
+    fs.existsSync(preparedUpdate.target) &&
+    isNewerVersion(preparedUpdate.latestVersion, app.getVersion())
+  ) {
+    sender?.send?.('app:update-ready', preparedUpdate);
+    return { success: true, prepared: true, ...preparedUpdate };
+  }
 
-  if (!isNewerVersion(updateInfo.latestVersion, updateInfo.currentVersion)) {
+  if (preparePromise) return preparePromise;
+
+  preparePromise = (async () => {
+    const updateInfo = await fetchLatestRelease({ refresh });
+
+    if (!isNewerVersion(updateInfo.latestVersion, updateInfo.currentVersion)) {
+      return {
+        success: false,
+        prepared: false,
+        message: 'This application is already up to date.'
+      };
+    }
+
+    if (!updateInfo.downloadUrl) {
+      return {
+        success: false,
+        prepared: false,
+        message: 'No Windows installer is attached to the latest release.'
+      };
+    }
+
+    const safeAssetName = path.basename(
+      updateInfo.assetName ||
+      `SRSB-Work-Management-Setup-${updateInfo.latestVersion}.exe`
+    ).replace(/[^a-zA-Z0-9._-]/g, '_');
+
+    if (!safeAssetName.toLowerCase().endsWith('.exe')) {
+      throw new Error('The update server did not return a Windows installer.');
+    }
+
+    const target = path.join(app.getPath('temp'), safeAssetName);
+    const response = await net.fetch(updateInfo.downloadUrl, {
+      headers: {
+        Accept: 'application/octet-stream',
+        'Cache-Control': 'no-cache'
+      }
+    });
+
+    if (!response.ok || !response.body) {
+      throw new Error(`Update download failed with HTTP ${response.status}.`);
+    }
+
+    const total = Number(
+      response.headers.get('content-length') || updateInfo.assetSize || 0
+    );
+    let downloaded = 0;
+    const hash = createHash('sha256');
+    const nodeStream = Readable.fromWeb(response.body);
+    const output = fs.createWriteStream(target);
+
+    try {
+      await new Promise((resolve, reject) => {
+        nodeStream.on('data', (chunk) => {
+          downloaded += chunk.length;
+          hash.update(chunk);
+          const progress = total
+            ? Math.min(100, Math.round((downloaded / total) * 100))
+            : null;
+
+          sender?.send?.('app:update-progress', {
+            downloaded,
+            total,
+            progress,
+            latestVersion: updateInfo.latestVersion
+          });
+        });
+
+        nodeStream.on('error', reject);
+        output.on('error', reject);
+        output.on('finish', resolve);
+        nodeStream.pipe(output);
+      });
+
+      const expected = expectedSha256(updateInfo.assetDigest);
+      const actual = hash.digest('hex').toLowerCase();
+
+      if (expected && expected !== actual) {
+        throw new Error('The downloaded update failed its integrity check.');
+      }
+
+      preparedUpdate = {
+        latestVersion: updateInfo.latestVersion,
+        releaseName: updateInfo.releaseName,
+        notes: updateInfo.notes,
+        publishedAt: updateInfo.publishedAt,
+        target
+      };
+
+      sender?.send?.('app:update-ready', preparedUpdate);
+
+      return {
+        success: true,
+        prepared: true,
+        ...preparedUpdate
+      };
+    } catch (error) {
+      try {
+        fs.rmSync(target, { force: true });
+      } catch {
+        // Preserve the original update error.
+      }
+      throw error;
+    }
+  })();
+
+  try {
+    return await preparePromise;
+  } finally {
+    preparePromise = null;
+  }
+}
+
+async function installPreparedUpdate() {
+  if (!preparedUpdate?.target || !fs.existsSync(preparedUpdate.target)) {
     return {
       success: false,
-      message: 'This application is already up to date.'
+      message: 'The update has not finished downloading yet.'
     };
   }
 
-  if (!updateInfo.downloadUrl) {
-    await shell.openExternal(updateInfo.releaseUrl || releasesPage);
-    return { success: false, openedReleasePage: true };
-  }
+  const launchError = await shell.openPath(preparedUpdate.target);
+  if (launchError) throw new Error(launchError);
 
-  const safeAssetName = path.basename(
-    updateInfo.assetName ||
-    `SRSB-Work-Management-Setup-${updateInfo.latestVersion}.exe`
-  ).replace(/[^a-zA-Z0-9._-]/g, '_');
+  setTimeout(() => app.quit(), 1000);
+  return { success: true };
+}
 
-  if (!safeAssetName.toLowerCase().endsWith('.exe')) {
-    throw new Error('The update server did not return a Windows installer.');
-  }
-
-  const target = path.join(app.getPath('temp'), safeAssetName);
-  const response = await net.fetch(updateInfo.downloadUrl, {
-    headers: {
-      Accept: 'application/octet-stream',
-      'Cache-Control': 'no-cache'
-    }
-  });
-
-  if (!response.ok || !response.body) {
-    throw new Error(`Update download failed with HTTP ${response.status}.`);
-  }
-
-  const total = Number(response.headers.get('content-length') || updateInfo.assetSize || 0);
-  let downloaded = 0;
-  const hash = createHash('sha256');
-  const nodeStream = Readable.fromWeb(response.body);
-  const output = fs.createWriteStream(target);
-
-  try {
-    await new Promise((resolve, reject) => {
-      nodeStream.on('data', (chunk) => {
-        downloaded += chunk.length;
-        hash.update(chunk);
-        const progress = total ? Math.min(100, Math.round((downloaded / total) * 100)) : null;
-        event.sender.send('app:update-progress', { downloaded, total, progress });
-      });
-      nodeStream.on('error', reject);
-      output.on('error', reject);
-      output.on('finish', resolve);
-      nodeStream.pipe(output);
-    });
-
-    const expected = expectedSha256(updateInfo.assetDigest);
-    const actual = hash.digest('hex').toLowerCase();
-
-    if (expected && expected !== actual) {
-      throw new Error('The downloaded update failed its integrity check.');
-    }
-
-    const launchError = await shell.openPath(target);
-    if (launchError) throw new Error(launchError);
-
-    setTimeout(() => app.quit(), 1000);
-    return { success: true, target };
-  } catch (error) {
-    try {
-      fs.rmSync(target, { force: true });
-    } catch {
-      // Ignore cleanup failures and report the original update error.
-    }
-    throw error;
-  }
+async function downloadUpdate(event) {
+  return prepareUpdateDownload(event.sender, { refresh: true });
 }
 
 ipcMain.handle('app:get-version', () => app.getVersion());
 ipcMain.handle('app:check-update', checkForUpdate);
-ipcMain.handle('app:download-update', downloadAndInstallUpdate);
+ipcMain.handle(
+  'app:prepare-update',
+  (event) => prepareUpdateDownload(event.sender, { refresh: true })
+);
+ipcMain.handle('app:download-update', downloadUpdate);
+ipcMain.handle('app:install-prepared-update', installPreparedUpdate);
 ipcMain.handle('app:open-releases', () => shell.openExternal(releasesPage));
 
 function createWindow() {
@@ -223,8 +293,23 @@ function createWindow() {
 
   win.webContents.once('did-finish-load', async () => {
     if (isDev) return;
+
     const result = await checkForUpdate(null, { refresh: false });
-    if (result.updateAvailable) win.webContents.send('app:update-available', result);
+
+    if (result.updateAvailable) {
+      win.webContents.send('app:update-available', result);
+
+      setTimeout(() => {
+        prepareUpdateDownload(win.webContents, { refresh: false }).catch(
+          (error) => {
+            console.error('Automatic update download failed:', error);
+            win.webContents.send('app:update-download-error', {
+              message: error.message
+            });
+          }
+        );
+      }, 1200);
+    }
   });
 }
 

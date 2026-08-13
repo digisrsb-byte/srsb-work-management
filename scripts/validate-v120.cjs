@@ -21,13 +21,26 @@ function requireText(relative, values) {
 }
 
 const packages = ['package.json','apps/backend/package.json','apps/frontend/package.json','apps/desktop/package.json'];
+const expectedVersion = JSON.parse(read('package.json')).version;
 for (const relative of packages) {
   const data = JSON.parse(read(relative));
-  if (data.version !== '1.2.2') fail(`${relative} version is ${data.version}, expected 1.2.2`);
-  else pass(`${relative} version 1.2.2`);
+  if (data.version !== expectedVersion) {
+    fail(`${relative} version is ${data.version}, expected ${expectedVersion}`);
+  } else {
+    pass(`${relative} version ${expectedVersion}`);
+  }
 }
 
-requireText('apps/backend/src/server.js', ['ensureV120Schema', 'await ensureV120Schema()']);
+requireText('apps/backend/src/server.js', [
+  'migrateTenantDatabase',
+  'migrateAllActiveTenants',
+  'await migrateAllActiveTenants()'
+]);
+requireText('apps/backend/src/services/tenantProvisioner.js', [
+  'ensureV120Schema',
+  'await ensureV120Schema({',
+  'migrateAllActiveTenants'
+]);
 requireText('apps/backend/src/migrations/ensureV120Schema.js', ['invoice_items', 'invoice_settings', 'task_extension_requests', 'show_greeting', 'date_of_birth', 'bank_account_number VARCHAR(80) NULL']);
 requireText('apps/backend/src/controllers/candidateController.js', ['getCandidateReferenceData', 'linkCandidateApplication', 'listCandidatePlacements']);
 requireText('apps/backend/src/controllers/invoiceController.js', ['PERCENTAGE_CTC', 'invoice_items', 'getInvoiceSettings']);
@@ -173,4 +186,4 @@ process.stderr.write(backendValidation.stderr || '');
 if (backendValidation.status !== 0) fail('Backend JavaScript validation'); else pass('Backend JavaScript validation');
 
 if (failed) process.exit(1);
-console.log('\nSRSB Work Management 1.2.2 source validation: PASS');
+console.log(`\nSRSB Work Management ${expectedVersion} source validation: PASS`);

@@ -6,7 +6,6 @@ import {
   IndianRupee,
   Pencil,
   Plus,
-  Printer,
   Search,
   Trash2,
   WalletCards,
@@ -17,8 +16,7 @@ import { indiaDateValue } from '../../utils/indiaTime.js';
 import useDebouncedValue from '../../hooks/useDebouncedValue.js';
 import {
   downloadInvoicePdf,
-  invoiceHtml,
-  printInvoice
+  invoiceHtml
 } from '../../utils/invoicePdf.js';
 import { useCompany } from '../../context/CompanyContext.jsx';
 
@@ -310,16 +308,7 @@ export default function Invoices() {
       setError(requestError.response?.data?.message || 'Invoice PDF could not be downloaded.');
     }
   }
-
-  async function print(invoice) {
-    try {
-      printInvoice(await loadDetail(invoice), invoiceProfile);
-    } catch (requestError) {
-      setError(requestError.response?.data?.message || 'Invoice could not be printed.');
-    }
-  }
-
-  function previewDraft() {
+function previewDraft() {
     const client = selectedClient || {};
     setPreview({
       invoice_number: form.invoiceNumber,
@@ -433,7 +422,7 @@ export default function Invoices() {
           <p className="eyebrow">Recruitment Finance</p>
           <h1 className="page-title">Recruitment Invoices</h1>
           <p className="page-subtitle">
-            Create tax invoices, preview them, download PDF and print them.
+            Create tax invoices, preview them and download PDF.
           </p>
         </div>
         <button className="btn btn-primary" type="button" onClick={openCreate}>
@@ -653,16 +642,17 @@ export default function Invoices() {
               <th>Candidates</th>
               <th>Date</th>
               <th>Total</th>
-              <th>Paid / Pending</th>
+              <th>Paid</th>
+              <th>Outstanding</th>
               <th>Status</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan="8">Loading invoices…</td></tr>
+              <tr><td colSpan="9">Loading invoices…</td></tr>
             ) : invoices.length === 0 ? (
-              <tr><td colSpan="8">No invoices found.</td></tr>
+              <tr><td colSpan="9">No invoices found.</td></tr>
             ) : (
               invoices.map((invoice) => (
                 <tr key={invoice.id}>
@@ -673,7 +663,8 @@ export default function Invoices() {
                   <td>{invoice.candidate_names || '—'}</td>
                   <td>{dateOnly(invoice.invoice_date)}</td>
                   <td>{money(invoice.total_amount)}</td>
-                  <td>{money(invoice.paid_amount)} / {money(invoice.pending_amount)}</td>
+                  <td>{money(invoice.paid_amount)}</td>
+                  <td>{money(invoice.pending_amount)}</td>
                   <td>
                     <span className={`status-badge status-${String(invoice.status).toLowerCase()}`}>
                       {label(invoice.status)}
@@ -683,7 +674,6 @@ export default function Invoices() {
                     <div className="row-actions">
                       <button className="icon-btn" title="Preview" onClick={() => previewInvoice(invoice)}><Eye size={16} /></button>
                       <button className="icon-btn" title="Download PDF" onClick={() => download(invoice)}><Download size={16} /></button>
-                      <button className="icon-btn" title="Print" onClick={() => print(invoice)}><Printer size={16} /></button>
                       {invoice.status !== 'CANCELLED' && (
                         <button className="icon-btn" title="Edit" onClick={() => openEdit(invoice)}><Pencil size={16} /></button>
                       )}
@@ -717,14 +707,13 @@ export default function Invoices() {
             <div className="section-heading">
               <div>
                 <h2>Invoice Preview</h2>
-                <p className="page-subtitle">The PDF and printed invoice use this same format.</p>
+                <p className="page-subtitle">The downloaded PDF uses this same invoice format.</p>
               </div>
               <button className="icon-btn" onClick={() => setPreview(null)}><X size={20} /></button>
             </div>
             <iframe className="invoice-preview-frame" title="Invoice preview" srcDoc={invoiceHtml(preview, invoiceProfile)} />
             <div className="form-actions">
               <button className="btn btn-primary" onClick={downloadPreview}><Download size={17} /> Download PDF</button>
-              <button className="btn btn-secondary" onClick={() => printInvoice(preview, invoiceProfile)}><Printer size={17} /> Print</button>
             </div>
           </div>
         </div>
