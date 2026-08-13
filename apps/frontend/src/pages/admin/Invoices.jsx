@@ -32,6 +32,13 @@ const emptyForm = {
   items: []
 };
 
+const newPaymentForm = () => ({
+  amount: '',
+  paymentDate: indiaDateValue(),
+  paymentMethod: 'Bank Transfer',
+  referenceNumber: ''
+});
+
 const statuses = ['DRAFT', 'PENDING', 'PARTIALLY_PAID', 'PAID', 'SUCCESS', 'RECEIVED', 'FAILED', 'CANCELLED'];
 
 const label = (value) => {
@@ -85,6 +92,8 @@ export default function Invoices() {
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [paymentSaving, setPaymentSaving] = useState(false);
+  const [paymentForm, setPaymentForm] = useState(newPaymentForm);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const debouncedSearch = useDebouncedValue(search, 300);
@@ -157,6 +166,31 @@ export default function Invoices() {
     outstanding: invoices.reduce((sum, invoice) => sum + Number(invoice.pending_amount || 0), 0)
   }), [invoices]);
 
+  const editingPaymentSummary = useMemo(() => {
+    if (!editing) return null;
+
+    const invoiceTotal = Number(editing.total_amount || 0);
+    const alreadyPaid = Number(editing.paid_amount || 0);
+    const outstanding = Math.max(invoiceTotal - alreadyPaid, 0);
+    const amountNow = Math.max(Number(paymentForm.amount || 0), 0);
+    const afterPaid = Math.min(alreadyPaid + amountNow, invoiceTotal);
+    const afterOutstanding = Math.max(invoiceTotal - afterPaid, 0);
+
+    return {
+      invoiceTotal,
+      alreadyPaid,
+      outstanding,
+      afterPaid,
+      afterOutstanding,
+      afterStatus:
+        amountNow <= 0
+          ? label(editing.status)
+          : afterOutstanding <= 0
+            ? 'Received'
+            : 'Partially Paid'
+    };
+  }, [editing, paymentForm.amount]);
+
   function setField(event) {
     const { name, value } = event.target;
     setForm((current) => ({ ...current, [name]: value }));
@@ -164,6 +198,7 @@ export default function Invoices() {
 
   async function openCreate() {
     setEditing(null);
+    setPaymentForm(newPaymentForm());
     setPlacements([]);
     setForm({
       ...emptyForm,
@@ -220,6 +255,7 @@ export default function Invoices() {
       const response = await api.get(`/invoices/${invoice.id}`);
       const detail = response.data.data;
       setEditing(detail);
+      setPaymentForm(newPaymentForm());
       setForm({
         clientId: String(detail.client_id || ''),
         invoiceNumber: detail.invoice_number || '',
@@ -291,6 +327,52 @@ export default function Invoices() {
   async function loadDetail(invoice) {
     const response = await api.get(`/invoices/${invoice.id}`);
     return response.data.data;
+  }
+
+  async function recordInvoicePayment() {
+    if (!editing || !editingPaymentSummary) return;
+
+    const amount = Number(paymentForm.amount || 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError('Enter an Amount Received greater than zero.');
+      return;
+    }
+    if (amount > editingPaymentSummary.outstanding) {
+      setError(
+        `Amount Received cannot exceed the outstanding amount of ${money(
+          editingPaymentSummary.outstanding
+        )}.`
+      );
+      return;
+    }
+    if (!paymentForm.paymentDate) {
+      setError('Payment Date is required.');
+      return;
+    }
+
+    try {
+      setPaymentSaving(true);
+      setError('');
+
+      const response = await api.post(`/invoices/${editing.id}/payments`, {
+        amount,
+        paymentDate: paymentForm.paymentDate,
+        paymentMethod: paymentForm.paymentMethod,
+        referenceNumber: paymentForm.referenceNumber
+      });
+
+      const refreshed = await api.get(`/invoices/${editing.id}`);
+      const detail = refreshed.data.data;
+      setEditing(detail);
+      setForm((current) => ({ ...current, status: detail.status || current.status }));
+      setPaymentForm(newPaymentForm());
+      setMessage(response.data.message || 'Payment recorded successfully.');
+      await loadInvoices();
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || 'Payment could not be recorded.');
+    } finally {
+      setPaymentSaving(false);
+    }
   }
 
   async function previewInvoice(invoice) {
@@ -604,6 +686,197 @@ function previewDraft() {
             )}
             <div className="invoice-total"><span>Grand Total</span><strong>{money(totals.total)}</strong></div>
           </div>
+
+          {editing && editingPaymentSummary && (
+            <section className="invoice-payment-panel">
+              <div className="invoice-payment-heading">
+                <div>
+                  <span className="invoice-payment-eyebrow">Payment Details</span>
+                  <h3>Record Client Payment</h3>
+                  <p>
+                    Record partial or full payments. Paid, Outstanding and Status
+                    are updated automatically.
+                  </p>
+                </div>
+                <WalletCards size={24} />
+              </div>
+
+              <div className="invoice-payment-summary">
+                <div>
+                  <span>Invoice Total</span>
+                  <strong>{money(editingPaymentSummary.invoiceTotal)}</strong>
+                </div>
+                <div>
+                  <span>Already Paid</span>
+                  <strong>{money(editingPaymentSummary.alreadyPaid)}</strong>
+                </div>
+                <div>
+                  <span>Outstanding</span>
+                  <strong>{money(editingPaymentSummary.outstanding)}</strong>
+                </div>
+                <div>
+                  <span>Current Status</span>
+                  <strong>{label(editing.status)}</strong>
+                </div>
+              </div>
+
+              {Math.abs(
+                Number(totals.total || 0) -
+                  Number(editingPaymentSummary.invoiceTotal || 0)
+              ) > 0.009 && (
+                <div className="invoice-payment-notice">
+                  Invoice values have been changed in this form. Click
+                  <strong> Update Invoice </strong>
+                  first, then reopen it before recording payment.
+                </div>
+              )}
+
+              {editingPaymentSummary.outstanding > 0 ? (
+                <>
+                  <div className="form-grid invoice-payment-fields">
+                    <label className="form-group">
+                      <span>Amount Received Now *</span>
+                      <input
+                        className="input"
+                        type="number"
+                        min="0.01"
+                        max={editingPaymentSummary.outstanding}
+                        step="0.01"
+                        value={paymentForm.amount}
+                        onChange={(event) =>
+                          setPaymentForm((current) => ({
+                            ...current,
+                            amount: event.target.value
+                          }))
+                        }
+                        placeholder="Enter received amount"
+                      />
+                    </label>
+
+                    <label className="form-group">
+                      <span>Payment Date *</span>
+                      <input
+                        className="input"
+                        type="date"
+                        value={paymentForm.paymentDate}
+                        onChange={(event) =>
+                          setPaymentForm((current) => ({
+                            ...current,
+                            paymentDate: event.target.value
+                          }))
+                        }
+                      />
+                    </label>
+
+                    <label className="form-group">
+                      <span>Payment Method</span>
+                      <select
+                        className="input"
+                        value={paymentForm.paymentMethod}
+                        onChange={(event) =>
+                          setPaymentForm((current) => ({
+                            ...current,
+                            paymentMethod: event.target.value
+                          }))
+                        }
+                      >
+                        <option>Bank Transfer</option>
+                        <option>NEFT</option>
+                        <option>RTGS</option>
+                        <option>IMPS</option>
+                        <option>UPI</option>
+                        <option>Cheque</option>
+                        <option>Cash</option>
+                        <option>Other</option>
+                      </select>
+                    </label>
+
+                    <label className="form-group">
+                      <span>UTR / Reference Number</span>
+                      <input
+                        className="input"
+                        value={paymentForm.referenceNumber}
+                        onChange={(event) =>
+                          setPaymentForm((current) => ({
+                            ...current,
+                            referenceNumber: event.target.value
+                          }))
+                        }
+                        placeholder="Optional reference"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="invoice-payment-after">
+                    <span>After this payment</span>
+                    <div>
+                      <strong>Paid: {money(editingPaymentSummary.afterPaid)}</strong>
+                      <strong>
+                        Outstanding: {money(editingPaymentSummary.afterOutstanding)}
+                      </strong>
+                      <strong>Status: {editingPaymentSummary.afterStatus}</strong>
+                    </div>
+                  </div>
+
+                  <div className="invoice-payment-actions">
+                    <button
+                      className="btn btn-primary"
+                      type="button"
+                      onClick={recordInvoicePayment}
+                      disabled={
+                        paymentSaving ||
+                        !paymentForm.amount ||
+                        Number(paymentForm.amount || 0) <= 0 ||
+                        Number(paymentForm.amount || 0) > editingPaymentSummary.outstanding ||
+                        Math.abs(
+                          Number(totals.total || 0) -
+                            Number(editingPaymentSummary.invoiceTotal || 0)
+                        ) > 0.009
+                      }
+                    >
+                      <WalletCards size={17} />
+                      {paymentSaving ? 'Recording…' : 'Record Payment'}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="invoice-payment-complete">
+                  This invoice is fully received. Outstanding amount is ₹0.
+                </div>
+              )}
+
+              <div className="invoice-payment-history">
+                <div className="invoice-payment-history-head">
+                  <h4>Payment History</h4>
+                  <span>
+                    {(editing.payments || []).length} payment
+                    {(editing.payments || []).length === 1 ? '' : 's'}
+                  </span>
+                </div>
+
+                {(editing.payments || []).length ? (
+                  <div className="invoice-payment-history-list">
+                    {(editing.payments || []).map((payment) => (
+                      <div className="invoice-payment-history-row" key={payment.id}>
+                        <div>
+                          <strong>{money(payment.amount)}</strong>
+                          <span>{dateOnly(payment.payment_date)}</span>
+                        </div>
+                        <div>
+                          <strong>{payment.payment_method || 'Not specified'}</strong>
+                          <span>{payment.reference_number || 'No reference number'}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="invoice-payment-empty">
+                    No payment has been recorded for this invoice yet.
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
 
           <div className="form-actions">
             <button className="btn btn-primary" disabled={saving || form.items.length === 0}>
