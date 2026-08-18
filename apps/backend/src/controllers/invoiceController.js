@@ -268,7 +268,7 @@ export const listInvoices = asyncHandler(async (req, res) => {
      LEFT JOIN invoice_items ii ON ii.invoice_id = i.id
      ${where}
      GROUP BY i.id
-     ORDER BY i.invoice_date DESC, i.id DESC
+     ORDER BY CAST(SUBSTRING(i.invoice_number, 5) AS UNSIGNED) DESC, i.id DESC
      LIMIT 1000`,
     values
   );
