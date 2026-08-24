@@ -15,6 +15,16 @@ const allowedStatuses = [
 const INDIA_NOW_SQL = 'DATE_ADD(UTC_TIMESTAMP(), INTERVAL 330 MINUTE)';
 const INDIA_DATE_SQL = 'DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 330 MINUTE))';
 
+const FULL_DAY_MINUTES = 530; // 8h 50m
+const MINIMUM_HALF_DAY_MINUTES = 180; // 3h
+
+function statusForWorkedMinutes(minutes) {
+  const workedMinutes = Math.max(Number(minutes || 0), 0);
+  if (workedMinutes < MINIMUM_HALF_DAY_MINUTES) return 'ABSENT';
+  if (workedMinutes < FULL_DAY_MINUTES) return 'HALF_DAY';
+  return 'PRESENT';
+}
+
 function indiaDateNow() {
   return new Date(Date.now() + 330 * 60 * 1000).toISOString().slice(0, 10);
 }
@@ -179,10 +189,11 @@ export const punchOut = asyncHandler(async (req, res) => {
        total_work_minutes =
          GREATEST(TIMESTAMPDIFF(MINUTE, punch_in, ${INDIA_NOW_SQL}), 0),
        status = CASE
-         WHEN GREATEST(TIMESTAMPDIFF(MINUTE, punch_in, ${INDIA_NOW_SQL}), 0) < 480
-         THEN 'HALF_DAY'
-
-         ELSE 'PRESENT'
+         WHEN GREATEST(TIMESTAMPDIFF(MINUTE, punch_in, ${INDIA_NOW_SQL}), 0) < 180
+          THEN 'ABSENT'
+          WHEN GREATEST(TIMESTAMPDIFF(MINUTE, punch_in, ${INDIA_NOW_SQL}), 0) < 530
+          THEN 'HALF_DAY'
+          ELSE 'PRESENT'
        END
      WHERE id = ?`,
     [attendance.id]
@@ -457,7 +468,9 @@ export const attendanceDayOverview = asyncHandler(async (req, res) => {
     let displayStatus;
 
     if (hasPunch) {
-      if (row.stored_status === 'HALF_DAY') {
+      if (row.stored_status === 'ABSENT') {
+        displayStatus = 'ABSENT';
+      } else if (row.stored_status === 'HALF_DAY') {
         displayStatus = 'HALF_DAY';
       } else if (row.stored_status === 'MISSING_PUNCH') {
         displayStatus = 'MISSING_PUNCH';
@@ -683,7 +696,7 @@ export const attendanceCalendar = asyncHandler(async (req, res) => {
     // absent/holiday value. This keeps the calendar, summary and work-time cards aligned.
     if (
       record?.punch_in &&
-      !['HALF_DAY', 'MISSING_PUNCH'].includes(status)
+      !['ABSENT', 'HALF_DAY', 'MISSING_PUNCH'].includes(status)
     ) {
       status = 'PRESENT';
     }
@@ -762,8 +775,8 @@ export const adminAdjustAttendance = asyncHandler(async (req, res) => {
   if (!Number.isInteger(employeeId) || employeeId <= 0) throw new AppError('Select a valid employee.', 400);
   const date = String(req.body.date || '').slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new AppError('Select a valid attendance date.', 400);
-  const status = String(req.body.status || '').toUpperCase();
-  if (!allowedStatuses.includes(status)) throw new AppError('Select a valid attendance status.', 400);
+  const requestedStatus = String(req.body.status || '').toUpperCase();
+  if (!allowedStatuses.includes(requestedStatus)) throw new AppError('Select a valid attendance status.', 400);
   const punchInSql = req.body.punchIn ? normalizeWallClockDateTime(req.body.punchIn, 'Punch-in time') : null;
   const punchOutSql = req.body.punchOut ? normalizeWallClockDateTime(req.body.punchOut, 'Punch-out time') : null;
   if (punchInSql && punchInSql.slice(0, 10) !== date) throw new AppError('Punch-in must belong to the selected attendance date.', 400);
@@ -771,6 +784,9 @@ export const adminAdjustAttendance = asyncHandler(async (req, res) => {
   const diffMinutes = punchInSql && punchOutSql ? wallClockMinutes(punchInSql, punchOutSql) : 0;
   if (punchInSql && punchOutSql && (!Number.isFinite(diffMinutes) || diffMinutes <= 0)) throw new AppError('Punch-out must be after punch-in.', 400);
   const minutes = punchInSql && punchOutSql ? Math.max(diffMinutes, 0) : 0;
+  const status = punchInSql && punchOutSql
+    ? statusForWorkedMinutes(minutes)
+    : requestedStatus;
   const remarks = String(req.body.remarks || '').trim() || `Adjusted by ${req.user.fullName || 'Admin'}`;
 
   const [[employee]] = await pool.query(
