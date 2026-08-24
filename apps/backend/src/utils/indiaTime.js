@@ -1,8 +1,8 @@
 export const INDIA_OFFSET_MINUTES = 330;
 export const INDIA_NOW_SQL = 'DATE_ADD(UTC_TIMESTAMP(), INTERVAL 330 MINUTE)';
 export const INDIA_DATE_SQL = 'DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 330 MINUTE))';
-export const FULL_DAY_MINUTES = 480;
-export const HALF_DAY_MINUTES = 240;
+export const FULL_DAY_MINUTES = 530;
+export const HALF_DAY_MINUTES = 180;
 
 export function indiaDateNow() {
   return new Date(Date.now() + INDIA_OFFSET_MINUTES * 60 * 1000)
@@ -45,5 +45,6 @@ export function deriveAttendanceStatus({ punchIn, punchOut, attendanceDate, forc
   }
 
   const minutes = Math.max(wallClockMinutes(punchIn, punchOut), 0);
+  if (minutes < HALF_DAY_MINUTES) return 'ABSENT';
   return minutes >= FULL_DAY_MINUTES ? 'PRESENT' : 'HALF_DAY';
 }

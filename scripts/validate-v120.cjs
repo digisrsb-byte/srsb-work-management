@@ -120,10 +120,15 @@ if (attendanceSource.includes("status = 'ABSENT';\n      remarks = 'Attendance n
 } else {
   pass('No-punch days remain Not Marked instead of automatic Absent.');
 }
-if (/THEN\s+'ABSENT'/m.test(attendanceSource)) {
-  fail('Punch-out duration must not automatically create Absent status.');
+if (
+  !attendanceSource.includes('const FULL_DAY_MINUTES = 530;') ||
+  !attendanceSource.includes('const MINIMUM_HALF_DAY_MINUTES = 180;') ||
+  !attendanceSource.includes("THEN 'ABSENT'") ||
+  !attendanceSource.includes("THEN 'HALF_DAY'")
+) {
+  fail('Punch-out duration must use: below 3h Absent, 3h-8h49 Half Day, 8h50+ Present.');
 } else {
-  pass('Punch-out duration never creates automatic Absent status.');
+  pass('Punch-out duration uses the 3h / 8h50 attendance policy.');
 }
 
 const taskRouteSource = read('apps/backend/src/routes/taskRoutes.js');
@@ -175,7 +180,7 @@ if (!fs.existsSync(signatureFile) || fs.statSync(signatureFile).size < 1000) {
   pass('Authorised signature image is bundled.');
 }
 
-requireText('apps/backend/src/utils/indiaTime.js', ['INDIA_DATE_SQL', 'FULL_DAY_MINUTES = 480', 'deriveAttendanceStatus']);
+requireText('apps/backend/src/utils/indiaTime.js', ['INDIA_DATE_SQL', 'FULL_DAY_MINUTES = 530', 'HALF_DAY_MINUTES = 180', 'deriveAttendanceStatus']);
 requireText('apps/backend/src/config/database.js', ["dateStrings: ['DATE', 'DATETIME']"]);
 requireText('apps/backend/src/controllers/candidateController.js', ['Complete placement details before marking this candidate as JOINED.', "h.employment_status IN ('JOINED','ACTIVE')"]);
 requireText('apps/frontend/src/pages/admin/Candidates.jsx', ['Complete Placement', 'Billing CTC *']);
