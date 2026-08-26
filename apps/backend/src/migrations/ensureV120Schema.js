@@ -250,6 +250,46 @@ export async function ensureV120Schema(options = {}) {
     );
   }
 
+  // Employee attendance break tracking.
+  await addColumn(
+    'attendance',
+    'total_break_minutes',
+    'INT NOT NULL DEFAULT 0'
+  );
+  await addColumn(
+    'attendance',
+    'included_break_minutes',
+    'INT NOT NULL DEFAULT 0'
+  );
+  await addColumn(
+    'attendance',
+    'deducted_break_minutes',
+    'INT NOT NULL DEFAULT 0'
+  );
+
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS attendance_breaks (
+       id INT AUTO_INCREMENT PRIMARY KEY,
+       attendance_id INT NOT NULL,
+       employee_id INT NOT NULL,
+       attendance_date DATE NOT NULL,
+       break_type ENUM('LUNCH','TEA','PERSONAL','OTHER') NOT NULL,
+       started_at DATETIME NOT NULL,
+       ended_at DATETIME NULL,
+       duration_minutes INT NOT NULL DEFAULT 0,
+       source VARCHAR(24) NOT NULL DEFAULT 'APP',
+       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+         ON UPDATE CURRENT_TIMESTAMP,
+       INDEX idx_attendance_break_employee_date (
+         employee_id,
+         attendance_date,
+         started_at
+       ),
+       INDEX idx_attendance_break_attendance (attendance_id)
+     )`
+  );
+
   // Holiday calendar greetings.
   await addColumn('holidays', 'show_greeting', 'BOOLEAN NOT NULL DEFAULT TRUE');
   await addColumn('holidays', 'greeting_message', 'VARCHAR(1000) NULL');
