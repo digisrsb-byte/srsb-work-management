@@ -41,7 +41,18 @@ requireText('apps/backend/src/services/tenantProvisioner.js', [
   'await ensureV120Schema({',
   'migrateAllActiveTenants'
 ]);
-requireText('apps/backend/src/migrations/ensureV120Schema.js', ['invoice_items', 'invoice_settings', 'task_extension_requests', 'show_greeting', 'date_of_birth', 'bank_account_number VARCHAR(80) NULL']);
+requireText('apps/backend/src/migrations/ensureV120Schema.js', [
+  'invoice_items',
+  'invoice_settings',
+  'task_extension_requests',
+  'show_greeting',
+  'date_of_birth',
+  'bank_account_number VARCHAR(80) NULL',
+  'attendance_breaks',
+  'total_break_minutes',
+  'included_break_minutes',
+  'deducted_break_minutes'
+]);
 requireText('apps/backend/src/controllers/candidateController.js', ['getCandidateReferenceData', 'linkCandidateApplication', 'listCandidatePlacements']);
 requireText('apps/backend/src/controllers/invoiceController.js', ['PERCENTAGE_CTC', 'invoice_items', 'getInvoiceSettings']);
 requireText('apps/backend/src/routes/invoiceRoutes.js', ["router.use(authenticate, allowRoles('SUPER_ADMIN'))"]);
@@ -53,8 +64,8 @@ requireText('apps/backend/src/controllers/attendanceController.js', [
   "weekday === 'SATURDAY'",
   "status = 'NOT_MARKED'",
   'workedOnHoliday',
-  "THEN 'HALF_DAY'",
-  "DATE_FORMAT(attendance_date, '%Y-%m-%d') AS attendance_date",
+  'statusForWorkedMinutes',
+  'attendance_date',
   'totalWorkMinutes: 0'
 ]);
 requireText('apps/frontend/src/pages/admin/Invoices.jsx', ['Invoice Preview', 'Preview Invoice', 'Download PDF', 'Placed Candidates', 'Location & Grade', 'Billing CTC', 'Duty Rate %']);
@@ -113,6 +124,26 @@ requireText('apps/frontend/src/pages/employee/MyAttendance.jsx', [
   'Punch In:',
   'Calculated from this calendar month'
 ]);
+requireText('apps/backend/src/controllers/attendanceBreakController.js', [
+  'LUNCH_INCLUDED_MINUTES = 30',
+  'todayAttendanceSummary',
+  'startAttendanceBreak',
+  'endAttendanceBreak',
+  'adminAttendanceBreaks'
+]);
+requireText('apps/backend/src/routes/attendanceRoutes.js', [
+  "'/today-summary'",
+  "'/break/start'",
+  "'/break/end'",
+  "'/admin-breaks'"
+]);
+requireText('apps/frontend/src/pages/employee/MyAttendance.jsx', [
+  'Select Break Type',
+  'Lunch includes up to 30 minutes',
+  'Effective Work',
+  "'/attendance/break/start'",
+  "'/attendance/break/end'"
+]);
 
 const attendanceSource = read('apps/backend/src/controllers/attendanceController.js');
 if (attendanceSource.includes("status = 'ABSENT';\n      remarks = 'Attendance not recorded'")) {
@@ -120,15 +151,38 @@ if (attendanceSource.includes("status = 'ABSENT';\n      remarks = 'Attendance n
 } else {
   pass('No-punch days remain Not Marked instead of automatic Absent.');
 }
+const hasAttendanceThresholds =
+  attendanceSource.includes('const FULL_DAY_MINUTES = 530;') &&
+  attendanceSource.includes('const MINIMUM_HALF_DAY_MINUTES = 180;') &&
+  attendanceSource.includes(
+    "if (workedMinutes < MINIMUM_HALF_DAY_MINUTES) return 'ABSENT';"
+  ) &&
+  attendanceSource.includes(
+    "if (workedMinutes < FULL_DAY_MINUTES) return 'HALF_DAY';"
+  ) &&
+  attendanceSource.includes("return 'PRESENT';");
+
+const usesLegacySqlThresholds =
+  attendanceSource.includes("THEN 'ABSENT'") &&
+  attendanceSource.includes("THEN 'HALF_DAY'");
+
+const usesEffectiveWorkThresholds =
+  attendanceSource.includes(
+    'statusForWorkedMinutes(effectiveMinutes)'
+  ) &&
+  attendanceSource.includes('deductedBreakMinutes');
+
 if (
-  !attendanceSource.includes('const FULL_DAY_MINUTES = 530;') ||
-  !attendanceSource.includes('const MINIMUM_HALF_DAY_MINUTES = 180;') ||
-  !attendanceSource.includes("THEN 'ABSENT'") ||
-  !attendanceSource.includes("THEN 'HALF_DAY'")
+  !hasAttendanceThresholds ||
+  !(usesLegacySqlThresholds || usesEffectiveWorkThresholds)
 ) {
-  fail('Punch-out duration must use: below 3h Absent, 3h-8h49 Half Day, 8h50+ Present.');
+  fail(
+    'Punch-out duration must use effective working time: below 3h Absent, 3h-8h49 Half Day, 8h50+ Present.'
+  );
 } else {
-  pass('Punch-out duration uses the 3h / 8h50 attendance policy.');
+  pass(
+    'Punch-out duration uses the 3h / 8h50 effective-working-time policy.'
+  );
 }
 
 const taskRouteSource = read('apps/backend/src/routes/taskRoutes.js');
@@ -162,6 +216,9 @@ requireText('apps/frontend/src/pages/admin/AttendanceManagement.jsx', [
   'Daily Attendance Calendar',
   '/attendance/day-overview',
   'Total Work Time',
+  'Total Break Time',
+  'Deducted Break',
+  'Break History',
   'Past dates show Present or Absent',
   'Future dates never show Absent'
 ]);

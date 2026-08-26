@@ -102,6 +102,13 @@ export const punchIn = asyncHandler(async (req, res) => {
     );
   }
 
+  await pool.query(
+    `DELETE FROM attendance_breaks
+     WHERE employee_id = ?
+       AND attendance_date = ${INDIA_DATE_SQL}`,
+    [employeeId]
+  );
+
   if (existing.length) {
     await pool.query(
       `UPDATE attendance
@@ -109,6 +116,9 @@ export const punchIn = asyncHandler(async (req, res) => {
          punch_in = ${INDIA_NOW_SQL},
          punch_out = NULL,
          total_work_minutes = 0,
+         total_break_minutes = 0,
+         included_break_minutes = 0,
+         deducted_break_minutes = 0,
          status = 'PRESENT'
        WHERE id = ?`,
       [existing[0].id]
@@ -120,9 +130,21 @@ export const punchIn = asyncHandler(async (req, res) => {
          attendance_date,
          punch_in,
          total_work_minutes,
+         total_break_minutes,
+         included_break_minutes,
+         deducted_break_minutes,
          status
        )
-       VALUES (?, ${INDIA_DATE_SQL}, ${INDIA_NOW_SQL}, 0, 'PRESENT')`,
+       VALUES (
+         ?,
+         ${INDIA_DATE_SQL},
+         ${INDIA_NOW_SQL},
+         0,
+         0,
+         0,
+         0,
+         'PRESENT'
+       )`,
       [employeeId]
     );
   }
@@ -134,6 +156,9 @@ export const punchIn = asyncHandler(async (req, res) => {
        punch_in,
        punch_out,
        total_work_minutes,
+       total_break_minutes,
+       included_break_minutes,
+       deducted_break_minutes,
        status
      FROM attendance
      WHERE employee_id = ?
@@ -182,21 +207,115 @@ export const punchOut = asyncHandler(async (req, res) => {
     );
   }
 
+  const [[activeBreak]] = await pool.query(
+    `SELECT id, break_type
+     FROM attendance_breaks
+     WHERE attendance_id = ?
+       AND ended_at IS NULL
+     ORDER BY id DESC
+     LIMIT 1`,
+    [attendance.id]
+  );
+
+  if (activeBreak) {
+    throw new AppError(
+      'End your active break before punching out.',
+      409
+    );
+  }
+
+  const [[breakTotals]] = await pool.query(
+    `SELECT
+       COALESCE(
+         SUM(
+           GREATEST(
+             duration_minutes,
+             0
+           )
+         ),
+         0
+       ) AS total_break_minutes,
+       LEAST(
+         COALESCE(
+           SUM(
+             CASE
+               WHEN break_type = 'LUNCH'
+                 THEN GREATEST(
+                   duration_minutes,
+                   0
+                 )
+               ELSE 0
+             END
+           ),
+           0
+         ),
+         30
+       ) AS included_break_minutes
+     FROM attendance_breaks
+     WHERE attendance_id = ?`,
+    [attendance.id]
+  );
+
+  const totalBreakMinutes = Math.max(
+    Number(
+      breakTotals?.total_break_minutes || 0
+    ),
+    0
+  );
+
+  const includedBreakMinutes = Math.max(
+    Number(
+      breakTotals?.included_break_minutes || 0
+    ),
+    0
+  );
+
+  const deductedBreakMinutes = Math.max(
+    totalBreakMinutes - includedBreakMinutes,
+    0
+  );
+
+  const [[worked]] = await pool.query(
+    `SELECT GREATEST(
+       TIMESTAMPDIFF(
+         MINUTE,
+         punch_in,
+         ${INDIA_NOW_SQL}
+       ),
+       0
+     ) AS gross_minutes
+     FROM attendance
+     WHERE id = ?`,
+    [attendance.id]
+  );
+
+  const effectiveMinutes = Math.max(
+    Number(worked?.gross_minutes || 0) -
+      deductedBreakMinutes,
+    0
+  );
+
+  const status =
+    statusForWorkedMinutes(effectiveMinutes);
+
   await pool.query(
     `UPDATE attendance
      SET
        punch_out = ${INDIA_NOW_SQL},
-       total_work_minutes =
-         GREATEST(TIMESTAMPDIFF(MINUTE, punch_in, ${INDIA_NOW_SQL}), 0),
-       status = CASE
-         WHEN GREATEST(TIMESTAMPDIFF(MINUTE, punch_in, ${INDIA_NOW_SQL}), 0) < 180
-          THEN 'ABSENT'
-          WHEN GREATEST(TIMESTAMPDIFF(MINUTE, punch_in, ${INDIA_NOW_SQL}), 0) < 530
-          THEN 'HALF_DAY'
-          ELSE 'PRESENT'
-       END
+       total_work_minutes = ?,
+       total_break_minutes = ?,
+       included_break_minutes = ?,
+       deducted_break_minutes = ?,
+       status = ?
      WHERE id = ?`,
-    [attendance.id]
+    [
+      effectiveMinutes,
+      totalBreakMinutes,
+      includedBreakMinutes,
+      deductedBreakMinutes,
+      status,
+      attendance.id
+    ]
   );
 
   const [[record]] = await pool.query(
@@ -206,6 +325,9 @@ export const punchOut = asyncHandler(async (req, res) => {
        punch_in,
        punch_out,
        total_work_minutes,
+       total_break_minutes,
+       included_break_minutes,
+       deducted_break_minutes,
        status
      FROM attendance
      WHERE id = ?`,
@@ -373,20 +495,24 @@ function attendanceDateValue(value) {
   return date;
 }
 
-export const attendanceDayOverview = asyncHandler(async (req, res) => {
-  const selectedDate = attendanceDateValue(
-    req.query.date || indiaDateNow()
-  );
+export const attendanceDayOverview = asyncHandler(
+  async (req, res) => {
+    const selectedDate = attendanceDateValue(
+      req.query.date || indiaDateNow()
+    );
 
-  const [[context]] = await pool.query(
-    `SELECT
-       DATE_FORMAT(${INDIA_DATE_SQL}, '%Y-%m-%d') AS today,
+    const [[context]] = await pool.query(
+      `SELECT
+       DATE_FORMAT(
+         ${INDIA_DATE_SQL},
+         '%Y-%m-%d'
+       ) AS today,
        UPPER(DAYNAME(?)) AS weekday`,
-    [selectedDate]
-  );
+      [selectedDate]
+    );
 
-  const [rows] = await pool.query(
-    `SELECT
+    const [rows] = await pool.query(
+      `SELECT
        e.id AS employee_id,
        e.employee_id AS employee_code,
        e.full_name AS employee_name,
@@ -400,9 +526,37 @@ export const attendanceDayOverview = asyncHandler(async (req, res) => {
          WHEN a.punch_in IS NOT NULL
            AND a.punch_out IS NULL
            AND ? = ${INDIA_DATE_SQL}
-         THEN GREATEST(TIMESTAMPDIFF(MINUTE, a.punch_in, ${INDIA_NOW_SQL}), 0)
-         ELSE GREATEST(COALESCE(a.total_work_minutes, 0), 0)
+         THEN GREATEST(
+           TIMESTAMPDIFF(
+             MINUTE,
+             a.punch_in,
+             ${INDIA_NOW_SQL}
+           ) -
+           COALESCE(ab.deducted_break_minutes, 0),
+           0
+         )
+         ELSE GREATEST(
+           COALESCE(a.total_work_minutes, 0),
+           0
+         )
        END AS total_work_minutes,
+       COALESCE(
+         ab.total_break_minutes,
+         a.total_break_minutes,
+         0
+       ) AS total_break_minutes,
+       COALESCE(
+         ab.included_break_minutes,
+         a.included_break_minutes,
+         0
+       ) AS included_break_minutes,
+       COALESCE(
+         ab.deducted_break_minutes,
+         a.deducted_break_minutes,
+         0
+       ) AS deducted_break_minutes,
+       COALESCE(ab.break_count, 0) AS break_count,
+       ab.active_break_type,
        a.status AS stored_status,
        a.remarks,
        lr.id AS leave_id,
@@ -415,13 +569,160 @@ export const attendanceDayOverview = asyncHandler(async (req, res) => {
      LEFT JOIN attendance a
        ON a.employee_id = e.id
       AND a.attendance_date = ?
+     LEFT JOIN (
+       SELECT
+         employee_id,
+         attendance_date,
+         COUNT(*) AS break_count,
+         SUM(
+           CASE
+             WHEN ended_at IS NOT NULL
+               THEN GREATEST(
+                 TIMESTAMPDIFF(
+                   MINUTE,
+                   started_at,
+                   ended_at
+                 ),
+                 0
+               )
+             WHEN attendance_date =
+               ${INDIA_DATE_SQL}
+               THEN GREATEST(
+                 TIMESTAMPDIFF(
+                   MINUTE,
+                   started_at,
+                   ${INDIA_NOW_SQL}
+                 ),
+                 0
+               )
+             ELSE GREATEST(
+               COALESCE(duration_minutes, 0),
+               0
+             )
+           END
+         ) AS total_break_minutes,
+         LEAST(
+           SUM(
+             CASE
+               WHEN break_type = 'LUNCH'
+               THEN CASE
+                 WHEN ended_at IS NOT NULL
+                   THEN GREATEST(
+                     TIMESTAMPDIFF(
+                       MINUTE,
+                       started_at,
+                       ended_at
+                     ),
+                     0
+                   )
+                 WHEN attendance_date =
+                   ${INDIA_DATE_SQL}
+                   THEN GREATEST(
+                     TIMESTAMPDIFF(
+                       MINUTE,
+                       started_at,
+                       ${INDIA_NOW_SQL}
+                     ),
+                     0
+                   )
+                 ELSE GREATEST(
+                   COALESCE(duration_minutes, 0),
+                   0
+                 )
+               END
+               ELSE 0
+             END
+           ),
+           30
+         ) AS included_break_minutes,
+         GREATEST(
+           SUM(
+             CASE
+               WHEN ended_at IS NOT NULL
+                 THEN GREATEST(
+                   TIMESTAMPDIFF(
+                     MINUTE,
+                     started_at,
+                     ended_at
+                   ),
+                   0
+                 )
+               WHEN attendance_date =
+                 ${INDIA_DATE_SQL}
+                 THEN GREATEST(
+                   TIMESTAMPDIFF(
+                     MINUTE,
+                     started_at,
+                     ${INDIA_NOW_SQL}
+                   ),
+                   0
+                 )
+               ELSE GREATEST(
+                 COALESCE(duration_minutes, 0),
+                 0
+               )
+             END
+           ) -
+           LEAST(
+             SUM(
+               CASE
+                 WHEN break_type = 'LUNCH'
+                 THEN CASE
+                   WHEN ended_at IS NOT NULL
+                     THEN GREATEST(
+                       TIMESTAMPDIFF(
+                         MINUTE,
+                         started_at,
+                         ended_at
+                       ),
+                       0
+                     )
+                   WHEN attendance_date =
+                     ${INDIA_DATE_SQL}
+                     THEN GREATEST(
+                       TIMESTAMPDIFF(
+                         MINUTE,
+                         started_at,
+                         ${INDIA_NOW_SQL}
+                       ),
+                       0
+                     )
+                   ELSE GREATEST(
+                     COALESCE(
+                       duration_minutes,
+                       0
+                     ),
+                     0
+                   )
+                 END
+                 ELSE 0
+               END
+             ),
+             30
+           ),
+           0
+         ) AS deducted_break_minutes,
+         MAX(
+           CASE
+             WHEN ended_at IS NULL
+               THEN break_type
+             ELSE NULL
+           END
+         ) AS active_break_type
+       FROM attendance_breaks
+       WHERE attendance_date = ?
+       GROUP BY employee_id, attendance_date
+     ) ab
+       ON ab.employee_id = e.id
+      AND ab.attendance_date = ?
      LEFT JOIN leave_requests lr
        ON lr.id = (
          SELECT lr2.id
          FROM leave_requests lr2
          WHERE lr2.employee_id = e.id
            AND lr2.status = 'APPROVED'
-           AND ? BETWEEN lr2.start_date AND lr2.end_date
+           AND ? BETWEEN
+             lr2.start_date AND lr2.end_date
          ORDER BY lr2.id DESC
          LIMIT 1
        )
@@ -430,134 +731,208 @@ export const attendanceDayOverview = asyncHandler(async (req, res) => {
          SELECT h2.id
          FROM holidays h2
          WHERE h2.holiday_date = ?
-           AND (h2.department_id IS NULL OR h2.department_id = e.department_id)
-         ORDER BY (h2.department_id IS NOT NULL) DESC, h2.id DESC
+           AND (
+             h2.department_id IS NULL OR
+             h2.department_id = e.department_id
+           )
+         ORDER BY
+           (h2.department_id IS NOT NULL) DESC,
+           h2.id DESC
          LIMIT 1
        )
-     WHERE COALESCE(e.account_type, 'EMPLOYEE') = 'EMPLOYEE'
+     WHERE COALESCE(
+       e.account_type,
+       'EMPLOYEE'
+     ) = 'EMPLOYEE'
        AND e.status = 'ACTIVE'
      ORDER BY e.full_name ASC`,
-    [selectedDate, selectedDate, selectedDate, selectedDate]
-  );
+      [
+        selectedDate,
+        selectedDate,
+        selectedDate,
+        selectedDate,
+        selectedDate,
+        selectedDate
+      ]
+    );
 
-  const today = context.today;
-  const weekday = context.weekday;
-  const isFutureDate = selectedDate > today;
-  const isToday = selectedDate === today;
+    const today = context.today;
+    const weekday = context.weekday;
+    const isFutureDate = selectedDate > today;
+    const isToday = selectedDate === today;
 
-  const summary = {
-    totalEmployees: rows.length,
-    present: 0,
-    absent: 0,
-    leave: 0,
-    holiday: 0,
-    workedOnHoliday: 0,
-    notMarked: 0,
-    future: 0,
-    halfDay: 0,
-    missingPunch: 0,
-    totalWorkMinutes: 0
-  };
-
-  const employees = rows.map((row) => {
-    const hasPunch = Boolean(row.punch_in);
-    const isWeeklyOff =
-      weekday === 'SATURDAY' ||
-      weekday === String(row.weekly_off_day || 'SUNDAY').toUpperCase();
-    const isHoliday = Boolean(row.holiday_id) || isWeeklyOff;
-    let displayStatus;
-
-    if (hasPunch) {
-      if (row.stored_status === 'ABSENT') {
-        displayStatus = 'ABSENT';
-      } else if (row.stored_status === 'HALF_DAY') {
-        displayStatus = 'HALF_DAY';
-      } else if (row.stored_status === 'MISSING_PUNCH') {
-        displayStatus = 'MISSING_PUNCH';
-      } else if (isHoliday) {
-        displayStatus = 'WORKED_ON_HOLIDAY';
-      } else {
-        displayStatus = 'PRESENT';
-      }
-    } else if (isFutureDate) {
-      displayStatus = 'FUTURE';
-    } else if (row.stored_status) {
-      displayStatus = row.stored_status === 'WEEK_OFF'
-        ? 'HOLIDAY'
-        : row.stored_status;
-    } else if (isHoliday) {
-      displayStatus = 'HOLIDAY';
-    } else if (row.leave_id) {
-      displayStatus = 'LEAVE';
-    } else if (isToday) {
-      displayStatus = 'NOT_MARKED';
-    } else {
-      displayStatus = 'ABSENT';
-    }
-
-    const minutes = hasPunch
-      ? Number(row.total_work_minutes || 0)
-      : 0;
-
-    if (displayStatus === 'PRESENT') summary.present += 1;
-    if (displayStatus === 'ABSENT') summary.absent += 1;
-    if (displayStatus === 'LEAVE') summary.leave += 1;
-    if (displayStatus === 'HOLIDAY') summary.holiday += 1;
-    if (displayStatus === 'WORKED_ON_HOLIDAY') {
-      summary.present += 1;
-      summary.workedOnHoliday += 1;
-    }
-    if (displayStatus === 'NOT_MARKED') summary.notMarked += 1;
-    if (displayStatus === 'FUTURE') summary.future += 1;
-    if (displayStatus === 'HALF_DAY') {
-      summary.present += 1;
-      summary.halfDay += 1;
-    }
-    if (displayStatus === 'MISSING_PUNCH') {
-      summary.present += 1;
-      summary.missingPunch += 1;
-    }
-
-    summary.totalWorkMinutes += minutes;
-
-    return {
-      employeeId: row.employee_id,
-      employeeCode: row.employee_code,
-      employeeName: row.employee_name,
-      department: row.department,
-      designation: row.designation,
-      attendanceId: row.attendance_id,
-      date: selectedDate,
-      punchIn: row.punch_in,
-      punchOut: row.punch_out,
-      totalWorkMinutes: minutes,
-      status: displayStatus,
-      storedStatus: row.stored_status,
-      remarks: row.remarks,
-      leaveType: row.leave_type,
-      isHoliday,
-      holidayName:
-        row.holiday_name ||
-        (isWeeklyOff
-          ? weekday === 'SATURDAY'
-            ? 'Saturday Holiday'
-            : 'Weekly Holiday'
-          : null)
+    const summary = {
+      totalEmployees: rows.length,
+      present: 0,
+      absent: 0,
+      leave: 0,
+      holiday: 0,
+      workedOnHoliday: 0,
+      notMarked: 0,
+      future: 0,
+      halfDay: 0,
+      missingPunch: 0,
+      totalWorkMinutes: 0,
+      totalBreakMinutes: 0,
+      deductedBreakMinutes: 0
     };
-  });
 
-  res.json({
-    success: true,
-    data: {
-      selectedDate,
-      today,
-      weekday,
-      isFutureDate,
-      employees,
-      summary
-    }
-  });
-});
+    const employees = rows.map((row) => {
+      const hasPunch = Boolean(row.punch_in);
+
+      const isWeeklyOff =
+        weekday === 'SATURDAY' ||
+        weekday === String(
+          row.weekly_off_day || 'SUNDAY'
+        ).toUpperCase();
+
+      const isHoliday =
+        Boolean(row.holiday_id) || isWeeklyOff;
+
+      let displayStatus;
+
+      if (hasPunch) {
+        if (row.stored_status === 'ABSENT') {
+          displayStatus = 'ABSENT';
+        } else if (
+          row.stored_status === 'HALF_DAY'
+        ) {
+          displayStatus = 'HALF_DAY';
+        } else if (
+          row.stored_status === 'MISSING_PUNCH'
+        ) {
+          displayStatus = 'MISSING_PUNCH';
+        } else if (isHoliday) {
+          displayStatus = 'WORKED_ON_HOLIDAY';
+        } else {
+          displayStatus = 'PRESENT';
+        }
+      } else if (isFutureDate) {
+        displayStatus = 'FUTURE';
+      } else if (row.stored_status) {
+        displayStatus =
+          row.stored_status === 'WEEK_OFF'
+            ? 'HOLIDAY'
+            : row.stored_status;
+      } else if (isHoliday) {
+        displayStatus = 'HOLIDAY';
+      } else if (row.leave_id) {
+        displayStatus = 'LEAVE';
+      } else if (isToday) {
+        displayStatus = 'NOT_MARKED';
+      } else {
+        displayStatus = 'ABSENT';
+      }
+
+      const minutes = hasPunch
+        ? Number(row.total_work_minutes || 0)
+        : 0;
+
+      if (displayStatus === 'PRESENT') {
+        summary.present += 1;
+      }
+
+      if (displayStatus === 'ABSENT') {
+        summary.absent += 1;
+      }
+
+      if (displayStatus === 'LEAVE') {
+        summary.leave += 1;
+      }
+
+      if (displayStatus === 'HOLIDAY') {
+        summary.holiday += 1;
+      }
+
+      if (displayStatus === 'WORKED_ON_HOLIDAY') {
+        summary.present += 1;
+        summary.workedOnHoliday += 1;
+      }
+
+      if (displayStatus === 'NOT_MARKED') {
+        summary.notMarked += 1;
+      }
+
+      if (displayStatus === 'FUTURE') {
+        summary.future += 1;
+      }
+
+      if (displayStatus === 'HALF_DAY') {
+        summary.present += 1;
+        summary.halfDay += 1;
+      }
+
+      if (displayStatus === 'MISSING_PUNCH') {
+        summary.present += 1;
+        summary.missingPunch += 1;
+      }
+
+      summary.totalWorkMinutes += minutes;
+      summary.totalBreakMinutes += Number(
+        row.total_break_minutes || 0
+      );
+      summary.deductedBreakMinutes += Number(
+        row.deducted_break_minutes || 0
+      );
+
+      return {
+        employeeId: row.employee_id,
+        employeeCode: row.employee_code,
+        employeeName: row.employee_name,
+        department: row.department,
+        designation: row.designation,
+        attendanceId: row.attendance_id,
+        date: selectedDate,
+        punchIn: row.punch_in,
+        punchOut: row.punch_out,
+        totalWorkMinutes: minutes,
+        totalBreakMinutes: Number(
+          row.total_break_minutes || 0
+        ),
+        includedBreakMinutes: Number(
+          row.included_break_minutes || 0
+        ),
+        deductedBreakMinutes: Number(
+          row.deducted_break_minutes || 0
+        ),
+        breakCount: Number(
+          row.break_count || 0
+        ),
+        activeBreakType:
+          row.active_break_type || null,
+        isOnBreak: Boolean(
+          row.active_break_type
+        ),
+        status: displayStatus,
+        storedStatus: row.stored_status,
+        remarks: row.remarks,
+        leaveType: row.leave_type,
+        isHoliday,
+        holidayName:
+          row.holiday_name ||
+          (
+            isWeeklyOff
+              ? weekday === 'SATURDAY'
+                ? 'Saturday Holiday'
+                : 'Weekly Holiday'
+              : null
+          )
+      };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        selectedDate,
+        today,
+        weekday,
+        isFutureDate,
+        employees,
+        summary
+      }
+    });
+  }
+);
 
 function monthRange(monthValue) {
   const month = String(monthValue || '').trim();
@@ -574,235 +949,673 @@ function monthRange(monthValue) {
 
 const dayNames = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
 
-export const attendanceCalendar = asyncHandler(async (req, res) => {
-  const range = monthRange(req.query.month || indiaDateNow().slice(0, 7));
-  const isAdmin = ['SUPER_ADMIN','ADMIN','HR','MANAGER'].includes(req.user.role);
-  let employeeId = req.user.id;
-  if (req.query.employeeId) {
-    if (!isAdmin && Number(req.query.employeeId) !== Number(req.user.id)) {
-      throw new AppError('You can view only your attendance calendar.', 403);
-    }
-    employeeId = Number(req.query.employeeId);
-  }
-  if (!Number.isInteger(Number(employeeId)) || Number(employeeId) <= 0) {
-    throw new AppError('Select a valid employee.', 400);
-  }
+export const attendanceCalendar = asyncHandler(
+  async (req, res) => {
+    const range = monthRange(
+      req.query.month ||
+        indiaDateNow().slice(0, 7)
+    );
 
-  const [[employee]] = await pool.query(
-    `SELECT e.id, e.employee_id, e.full_name, e.designation, e.department_id,
-       e.weekly_off_day, d.name AS department
-     FROM employees e LEFT JOIN departments d ON d.id = e.department_id
-     WHERE e.id = ? AND COALESCE(e.account_type, 'EMPLOYEE') = 'EMPLOYEE'`,
-    [employeeId]
-  );
-  if (!employee) throw new AppError('Employee not found.', 404);
+    const isAdmin = [
+      'SUPER_ADMIN',
+      'ADMIN',
+      'HR',
+      'MANAGER'
+    ].includes(req.user.role);
 
-  // Persist approved leave into attendance so employee calendar matches admin.
-  await backfillApprovedLeaveAttendance(pool, employeeId, range.start, range.end);
+    let employeeId = req.user.id;
 
-  const [records] = await pool.query(
-    `SELECT id,
-       DATE_FORMAT(attendance_date, '%Y-%m-%d') AS attendance_date,
-       punch_in,
-       punch_out,
-       CASE
-         WHEN punch_in IS NOT NULL AND punch_out IS NULL AND attendance_date = ${INDIA_DATE_SQL}
-         THEN GREATEST(TIMESTAMPDIFF(MINUTE, punch_in, ${INDIA_NOW_SQL}), 0)
-         ELSE GREATEST(COALESCE(total_work_minutes, 0), 0)
-       END AS total_work_minutes,
-       status, remarks
-     FROM attendance
-     WHERE employee_id = ? AND attendance_date BETWEEN ? AND ?`,
-    [employeeId, range.start, range.end]
-  );
-
-  const [holidays] = await pool.query(
-    `SELECT id, holiday_name,
-       DATE_FORMAT(holiday_date, '%Y-%m-%d') AS holiday_date,
-       holiday_type, description
-     FROM holidays
-     WHERE holiday_date BETWEEN ? AND ?
-       AND (department_id IS NULL OR department_id = ?)`,
-    [range.start, range.end, employee.department_id]
-  );
-
-  const [approvedLeaves] = await pool.query(
-    `SELECT id, leave_type, duration_type,
-       DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date,
-       DATE_FORMAT(end_date, '%Y-%m-%d') AS end_date
-     FROM leave_requests
-     WHERE employee_id = ?
-       AND status = 'APPROVED'
-       AND start_date <= ?
-       AND end_date >= ?`,
-    [employeeId, range.end, range.start]
-  );
-
-  const [[todayRow]] = await pool.query(`SELECT DATE_FORMAT(${INDIA_DATE_SQL}, "%Y-%m-%d") AS today`);
-  const today = todayRow.today;
-  const recordMap = new Map(
-    records.map((record) => [record.attendance_date, record])
-  );
-  const holidayMap = new Map(
-    holidays.map((holiday) => [holiday.holiday_date, holiday])
-  );
-  const leaveDateMap = new Map();
-  for (const leave of approvedLeaves) {
-    const cursor = new Date(`${leave.start_date}T00:00:00Z`);
-    const last = new Date(`${leave.end_date}T00:00:00Z`);
-    while (cursor <= last) {
-      const leaveDate = cursor.toISOString().slice(0, 10);
-      if (leaveDate >= range.start && leaveDate <= range.end) {
-        leaveDateMap.set(leaveDate, leave);
+    if (req.query.employeeId) {
+      if (
+        !isAdmin &&
+        Number(req.query.employeeId) !==
+          Number(req.user.id)
+      ) {
+        throw new AppError(
+          'You can view only your attendance calendar.',
+          403
+        );
       }
-      cursor.setUTCDate(cursor.getUTCDate() + 1);
+
+      employeeId =
+        Number(req.query.employeeId);
     }
-  }
 
-  const calendar = [];
-  const summary = {
-    PRESENT: 0,
-    ABSENT: 0,
-    HOLIDAY: 0,
-    LEAVE: 0,
-    HALF_DAY: 0,
-    WEEK_OFF: 0,
-    MISSING_PUNCH: 0,
-    NOT_MARKED: 0,
-    totalWorkMinutes: 0
-  };
-
-  for (let day = 1; day <= range.lastDay; day += 1) {
-    const date = `${range.year}-${String(range.monthNumber).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    const weekday = dayNames[new Date(`${date}T00:00:00Z`).getUTCDay()];
-    const record = recordMap.get(date);
-    const holiday = holidayMap.get(date);
-    const approvedLeave = leaveDateMap.get(date);
-
-    // Saturday is always a company weekly holiday. The employee's configured
-    // weekly off is also respected, so existing Sunday/off-day settings remain valid.
-    const isWeeklyOff =
-      weekday === 'SATURDAY' ||
-      weekday === employee.weekly_off_day;
-    const isHoliday = Boolean(holiday) || isWeeklyOff;
-    const workedOnHoliday =
-      Boolean(record?.punch_in) &&
-      isHoliday;
-
-    let status = record?.status || null;
-    let remarks = record?.remarks || null;
-
-    // A real punch record always takes priority over a stale manually stored
-    // absent/holiday value. This keeps the calendar, summary and work-time cards aligned.
     if (
-      record?.punch_in &&
-      !['ABSENT', 'HALF_DAY', 'MISSING_PUNCH'].includes(status)
+      !Number.isInteger(Number(employeeId)) ||
+      Number(employeeId) <= 0
     ) {
-      status = 'PRESENT';
-    }
-
-    if (!status && approvedLeave) {
-      status = ['FIRST_HALF', 'SECOND_HALF'].includes(approvedLeave.duration_type)
-        ? 'HALF_DAY'
-        : 'LEAVE';
-      remarks = `Approved leave (${String(approvedLeave.leave_type || '')
-        .replaceAll('_', ' ')
-        .toLowerCase()})`;
-    } else if (!status && holiday) {
-      status = 'HOLIDAY';
-      remarks = holiday.holiday_name;
-    } else if (!status && isWeeklyOff) {
-      status = 'HOLIDAY';
-      remarks =
-        weekday === 'SATURDAY'
-          ? 'Saturday Holiday'
-          : 'Weekly Holiday';
-    } else if (!status && date <= today) {
-      status = 'NOT_MARKED';
-      remarks = 'No punch recorded';
-    } else if (!status) {
-      status = 'FUTURE';
-    }
-
-    if (workedOnHoliday) {
-      remarks =
-        record?.remarks ||
-        `Worked on ${
-          holiday?.holiday_name ||
-          (weekday === 'SATURDAY'
-            ? 'Saturday holiday'
-            : 'weekly holiday')
-        }`;
-    }
-
-    if (summary[status] !== undefined) {
-      summary[status] += 1;
-    }
-
-    if (record?.punch_in) {
-      summary.totalWorkMinutes += Number(
-        record.total_work_minutes || 0
+      throw new AppError(
+        'Select a valid employee.',
+        400
       );
     }
 
-    calendar.push({
-      date,
-      weekday,
-      status,
-      attendanceId: record?.id || null,
-      punchIn: record?.punch_in || null,
-      punchOut: record?.punch_out || null,
-      totalWorkMinutes: Number(record?.total_work_minutes || 0),
-      remarks,
-      holiday: holiday || null,
-      isWeeklyOff,
-      workedOnHoliday,
-      holidayLabel:
-        holiday?.holiday_name ||
-        (isWeeklyOff
-          ? weekday === 'SATURDAY'
+    const [[employee]] = await pool.query(
+      `SELECT
+       e.id,
+       e.employee_id,
+       e.full_name,
+       e.designation,
+       e.department_id,
+       e.weekly_off_day,
+       d.name AS department
+       FROM employees e
+       LEFT JOIN departments d
+         ON d.id = e.department_id
+       WHERE e.id = ?
+         AND COALESCE(
+           e.account_type,
+           'EMPLOYEE'
+         ) = 'EMPLOYEE'`,
+      [employeeId]
+    );
+
+    if (!employee) {
+      throw new AppError(
+        'Employee not found.',
+        404
+      );
+    }
+
+    await backfillApprovedLeaveAttendance(
+      pool,
+      employeeId,
+      range.start,
+      range.end
+    );
+
+    const [records] = await pool.query(
+      `SELECT
+       id,
+       DATE_FORMAT(
+         attendance_date,
+         '%Y-%m-%d'
+       ) AS attendance_date,
+       punch_in,
+       punch_out,
+       CASE
+         WHEN punch_in IS NOT NULL
+           AND punch_out IS NULL
+           AND attendance_date =
+             ${INDIA_DATE_SQL}
+         THEN GREATEST(
+           TIMESTAMPDIFF(
+             MINUTE,
+             punch_in,
+             ${INDIA_NOW_SQL}
+           ) -
+           COALESCE(
+             deducted_break_minutes,
+             0
+           ),
+           0
+         )
+         ELSE GREATEST(
+           COALESCE(
+             total_work_minutes,
+             0
+           ),
+           0
+         )
+       END AS total_work_minutes,
+       COALESCE(
+         total_break_minutes,
+         0
+       ) AS total_break_minutes,
+       COALESCE(
+         included_break_minutes,
+         0
+       ) AS included_break_minutes,
+       COALESCE(
+         deducted_break_minutes,
+         0
+       ) AS deducted_break_minutes,
+       status,
+       remarks
+       FROM attendance
+       WHERE employee_id = ?
+         AND attendance_date BETWEEN ? AND ?`,
+      [
+        employeeId,
+        range.start,
+        range.end
+      ]
+    );
+
+    const [holidays] = await pool.query(
+      `SELECT
+       id,
+       holiday_name,
+       DATE_FORMAT(
+         holiday_date,
+         '%Y-%m-%d'
+       ) AS holiday_date,
+       holiday_type,
+       description
+       FROM holidays
+       WHERE holiday_date BETWEEN ? AND ?
+         AND (
+           department_id IS NULL OR
+           department_id = ?
+         )`,
+      [
+        range.start,
+        range.end,
+        employee.department_id
+      ]
+    );
+
+    const [approvedLeaves] = await pool.query(
+      `SELECT
+       id,
+       leave_type,
+       duration_type,
+       DATE_FORMAT(
+         start_date,
+         '%Y-%m-%d'
+       ) AS start_date,
+       DATE_FORMAT(
+         end_date,
+         '%Y-%m-%d'
+       ) AS end_date
+       FROM leave_requests
+       WHERE employee_id = ?
+         AND status = 'APPROVED'
+         AND start_date <= ?
+         AND end_date >= ?`,
+      [
+        employeeId,
+        range.end,
+        range.start
+      ]
+    );
+
+    const [[todayRow]] = await pool.query(
+      `SELECT DATE_FORMAT(
+       ${INDIA_DATE_SQL},
+       "%Y-%m-%d"
+       ) AS today`
+    );
+
+    const today = todayRow.today;
+
+    const recordMap = new Map(
+      records.map((record) => [
+        record.attendance_date,
+        record
+      ])
+    );
+
+    const holidayMap = new Map(
+      holidays.map((holiday) => [
+        holiday.holiday_date,
+        holiday
+      ])
+    );
+
+    const leaveDateMap = new Map();
+
+    for (const leave of approvedLeaves) {
+      const cursor = new Date(
+        `${leave.start_date}T00:00:00Z`
+      );
+      const last = new Date(
+        `${leave.end_date}T00:00:00Z`
+      );
+
+      while (cursor <= last) {
+        const leaveDate =
+          cursor.toISOString().slice(0, 10);
+
+        if (
+          leaveDate >= range.start &&
+          leaveDate <= range.end
+        ) {
+          leaveDateMap.set(
+            leaveDate,
+            leave
+          );
+        }
+
+        cursor.setUTCDate(
+          cursor.getUTCDate() + 1
+        );
+      }
+    }
+
+    const calendar = [];
+
+    const summary = {
+      PRESENT: 0,
+      ABSENT: 0,
+      HOLIDAY: 0,
+      LEAVE: 0,
+      HALF_DAY: 0,
+      WEEK_OFF: 0,
+      MISSING_PUNCH: 0,
+      NOT_MARKED: 0,
+      totalWorkMinutes: 0
+    };
+
+    for (
+      let day = 1;
+      day <= range.lastDay;
+      day += 1
+    ) {
+      const date =
+        `${range.year}-${String(
+          range.monthNumber
+        ).padStart(2, '0')}-${String(day)
+          .padStart(2, '0')}`;
+
+      const weekday = dayNames[
+        new Date(
+          `${date}T00:00:00Z`
+        ).getUTCDay()
+      ];
+
+      const record = recordMap.get(date);
+      const holiday = holidayMap.get(date);
+      const approvedLeave =
+        leaveDateMap.get(date);
+
+      const isWeeklyOff =
+        weekday === 'SATURDAY' ||
+        weekday === employee.weekly_off_day;
+
+      const isHoliday =
+        Boolean(holiday) || isWeeklyOff;
+
+      const workedOnHoliday =
+        Boolean(record?.punch_in) &&
+        isHoliday;
+
+      let status = record?.status || null;
+      let remarks =
+        record?.remarks || null;
+
+      if (
+        record?.punch_in &&
+        ![
+          'ABSENT',
+          'HALF_DAY',
+          'MISSING_PUNCH'
+        ].includes(status)
+      ) {
+        status = 'PRESENT';
+      }
+
+      if (!status && approvedLeave) {
+        status = [
+          'FIRST_HALF',
+          'SECOND_HALF'
+        ].includes(
+          approvedLeave.duration_type
+        )
+          ? 'HALF_DAY'
+          : 'LEAVE';
+
+        remarks =
+          `Approved leave (${String(
+            approvedLeave.leave_type || ''
+          )
+            .replaceAll('_', ' ')
+            .toLowerCase()})`;
+      } else if (!status && holiday) {
+        status = 'HOLIDAY';
+        remarks = holiday.holiday_name;
+      } else if (!status && isWeeklyOff) {
+        status = 'HOLIDAY';
+        remarks =
+          weekday === 'SATURDAY'
             ? 'Saturday Holiday'
-            : 'Weekly Holiday'
-          : null)
+            : 'Weekly Holiday';
+      } else if (!status && date <= today) {
+        status = 'NOT_MARKED';
+        remarks = 'No punch recorded';
+      } else if (!status) {
+        status = 'FUTURE';
+      }
+
+      if (workedOnHoliday) {
+        remarks =
+          record?.remarks ||
+          `Worked on ${
+            holiday?.holiday_name ||
+            (
+              weekday === 'SATURDAY'
+                ? 'Saturday holiday'
+                : 'weekly holiday'
+            )
+          }`;
+      }
+
+      if (summary[status] !== undefined) {
+        summary[status] += 1;
+      }
+
+      if (record?.punch_in) {
+        summary.totalWorkMinutes += Number(
+          record.total_work_minutes || 0
+        );
+      }
+
+      calendar.push({
+        date,
+        weekday,
+        status,
+        attendanceId:
+          record?.id || null,
+        punchIn:
+          record?.punch_in || null,
+        punchOut:
+          record?.punch_out || null,
+        totalWorkMinutes: Number(
+          record?.total_work_minutes || 0
+        ),
+        totalBreakMinutes: Number(
+          record?.total_break_minutes || 0
+        ),
+        includedBreakMinutes: Number(
+          record?.included_break_minutes || 0
+        ),
+        deductedBreakMinutes: Number(
+          record?.deducted_break_minutes || 0
+        ),
+        remarks,
+        holiday: holiday || null,
+        isWeeklyOff,
+        workedOnHoliday,
+        holidayLabel:
+          holiday?.holiday_name ||
+          (
+            isWeeklyOff
+              ? weekday === 'SATURDAY'
+                ? 'Saturday Holiday'
+                : 'Weekly Holiday'
+              : null
+          )
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        employee,
+        month: range.month,
+        today,
+        calendar,
+        summary
+      }
     });
   }
+);
 
-  res.json({ success: true, data: { employee, month: range.month, today, calendar, summary } });
-});
+export const adminAdjustAttendance =
+  asyncHandler(async (req, res) => {
+    const employeeId =
+      Number(req.body.employeeId);
 
-export const adminAdjustAttendance = asyncHandler(async (req, res) => {
-  const employeeId = Number(req.body.employeeId);
-  if (!Number.isInteger(employeeId) || employeeId <= 0) throw new AppError('Select a valid employee.', 400);
-  const date = String(req.body.date || '').slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new AppError('Select a valid attendance date.', 400);
-  const requestedStatus = String(req.body.status || '').toUpperCase();
-  if (!allowedStatuses.includes(requestedStatus)) throw new AppError('Select a valid attendance status.', 400);
-  const punchInSql = req.body.punchIn ? normalizeWallClockDateTime(req.body.punchIn, 'Punch-in time') : null;
-  const punchOutSql = req.body.punchOut ? normalizeWallClockDateTime(req.body.punchOut, 'Punch-out time') : null;
-  if (punchInSql && punchInSql.slice(0, 10) !== date) throw new AppError('Punch-in must belong to the selected attendance date.', 400);
-  if (punchOutSql && punchOutSql.slice(0, 10) !== date) throw new AppError('Punch-out must belong to the selected attendance date.', 400);
-  const diffMinutes = punchInSql && punchOutSql ? wallClockMinutes(punchInSql, punchOutSql) : 0;
-  if (punchInSql && punchOutSql && (!Number.isFinite(diffMinutes) || diffMinutes <= 0)) throw new AppError('Punch-out must be after punch-in.', 400);
-  const minutes = punchInSql && punchOutSql ? Math.max(diffMinutes, 0) : 0;
-  const status = punchInSql && punchOutSql
-    ? statusForWorkedMinutes(minutes)
-    : requestedStatus;
-  const remarks = String(req.body.remarks || '').trim() || `Adjusted by ${req.user.fullName || 'Admin'}`;
+    if (
+      !Number.isInteger(employeeId) ||
+      employeeId <= 0
+    ) {
+      throw new AppError(
+        'Select a valid employee.',
+        400
+      );
+    }
 
-  const [[employee]] = await pool.query(
-    `SELECT id FROM employees WHERE id = ? AND COALESCE(account_type, 'EMPLOYEE') = 'EMPLOYEE'`,
-    [employeeId]
-  );
-  if (!employee) throw new AppError('Employee not found.', 404);
+    const date = String(
+      req.body.date || ''
+    ).slice(0, 10);
 
-  await pool.query(
-    `INSERT INTO attendance (
-       employee_id, attendance_date, punch_in, punch_out, total_work_minutes, status, remarks
-     ) VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE punch_in = VALUES(punch_in), punch_out = VALUES(punch_out),
-       total_work_minutes = VALUES(total_work_minutes), status = VALUES(status),
-       remarks = VALUES(remarks), updated_at = CURRENT_TIMESTAMP`,
-    [employeeId, date, punchInSql, punchOutSql, minutes, status, remarks]
-  );
-  res.json({ success: true, message: 'Attendance updated successfully.' });
-});
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      throw new AppError(
+        'Select a valid attendance date.',
+        400
+      );
+    }
+
+    const requestedStatus = String(
+      req.body.status || ''
+    ).toUpperCase();
+
+    if (
+      !allowedStatuses.includes(
+        requestedStatus
+      )
+    ) {
+      throw new AppError(
+        'Select a valid attendance status.',
+        400
+      );
+    }
+
+    const punchInSql = req.body.punchIn
+      ? normalizeWallClockDateTime(
+          req.body.punchIn,
+          'Punch-in time'
+        )
+      : null;
+
+    const punchOutSql = req.body.punchOut
+      ? normalizeWallClockDateTime(
+          req.body.punchOut,
+          'Punch-out time'
+        )
+      : null;
+
+    if (
+      punchInSql &&
+      punchInSql.slice(0, 10) !== date
+    ) {
+      throw new AppError(
+        'Punch-in must belong to the selected attendance date.',
+        400
+      );
+    }
+
+    if (
+      punchOutSql &&
+      punchOutSql.slice(0, 10) !== date
+    ) {
+      throw new AppError(
+        'Punch-out must belong to the selected attendance date.',
+        400
+      );
+    }
+
+    const diffMinutes =
+      punchInSql && punchOutSql
+        ? wallClockMinutes(
+            punchInSql,
+            punchOutSql
+          )
+        : 0;
+
+    if (
+      punchInSql &&
+      punchOutSql &&
+      (
+        !Number.isFinite(diffMinutes) ||
+        diffMinutes <= 0
+      )
+    ) {
+      throw new AppError(
+        'Punch-out must be after punch-in.',
+        400
+      );
+    }
+
+    const [[employee]] = await pool.query(
+      `SELECT id
+       FROM employees
+       WHERE id = ?
+         AND COALESCE(
+           account_type,
+           'EMPLOYEE'
+         ) = 'EMPLOYEE'`,
+      [employeeId]
+    );
+
+    if (!employee) {
+      throw new AppError(
+        'Employee not found.',
+        404
+      );
+    }
+
+    const [[breakTotals]] = await pool.query(
+      `SELECT
+       COALESCE(
+         SUM(
+           CASE
+             WHEN ended_at IS NOT NULL
+             THEN GREATEST(
+               TIMESTAMPDIFF(
+                 MINUTE,
+                 started_at,
+                 ended_at
+               ),
+               0
+             )
+             ELSE GREATEST(
+               COALESCE(
+                 duration_minutes,
+                 0
+               ),
+               0
+             )
+           END
+         ),
+         0
+       ) AS total_break_minutes,
+       LEAST(
+         COALESCE(
+           SUM(
+             CASE
+               WHEN break_type = 'LUNCH'
+               THEN CASE
+                 WHEN ended_at IS NOT NULL
+                 THEN GREATEST(
+                   TIMESTAMPDIFF(
+                     MINUTE,
+                     started_at,
+                     ended_at
+                   ),
+                   0
+                 )
+                 ELSE GREATEST(
+                   COALESCE(
+                     duration_minutes,
+                     0
+                   ),
+                   0
+                 )
+               END
+               ELSE 0
+             END
+           ),
+           0
+         ),
+         30
+       ) AS included_break_minutes
+       FROM attendance_breaks
+       WHERE employee_id = ?
+         AND attendance_date = ?`,
+      [employeeId, date]
+    );
+
+    const totalBreakMinutes = Math.max(
+      Number(
+        breakTotals?.total_break_minutes || 0
+      ),
+      0
+    );
+
+    const includedBreakMinutes = Math.max(
+      Number(
+        breakTotals?.included_break_minutes || 0
+      ),
+      0
+    );
+
+    const deductedBreakMinutes = Math.max(
+      totalBreakMinutes -
+        includedBreakMinutes,
+      0
+    );
+
+    const minutes =
+      punchInSql && punchOutSql
+        ? Math.max(
+            diffMinutes -
+              deductedBreakMinutes,
+            0
+          )
+        : 0;
+
+    const status =
+      punchInSql && punchOutSql
+        ? statusForWorkedMinutes(minutes)
+        : requestedStatus;
+
+    const remarks =
+      String(
+        req.body.remarks || ''
+      ).trim() ||
+      `Adjusted by ${
+        req.user.fullName || 'Admin'
+      }`;
+
+    await pool.query(
+      `INSERT INTO attendance (
+       employee_id,
+       attendance_date,
+       punch_in,
+       punch_out,
+       total_work_minutes,
+       total_break_minutes,
+       included_break_minutes,
+       deducted_break_minutes,
+       status,
+       remarks
+       ) VALUES (
+         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+       )
+       ON DUPLICATE KEY UPDATE
+         punch_in = VALUES(punch_in),
+         punch_out = VALUES(punch_out),
+         total_work_minutes =
+           VALUES(total_work_minutes),
+         total_break_minutes =
+           VALUES(total_break_minutes),
+         included_break_minutes =
+           VALUES(included_break_minutes),
+         deducted_break_minutes =
+           VALUES(deducted_break_minutes),
+         status = VALUES(status),
+         remarks = VALUES(remarks),
+         updated_at = CURRENT_TIMESTAMP`,
+      [
+        employeeId,
+        date,
+        punchInSql,
+        punchOutSql,
+        minutes,
+        totalBreakMinutes,
+        includedBreakMinutes,
+        deductedBreakMinutes,
+        status,
+        remarks
+      ]
+    );
+
+    res.json({
+      success: true,
+      message:
+        'Attendance updated successfully.'
+    });
+  });
