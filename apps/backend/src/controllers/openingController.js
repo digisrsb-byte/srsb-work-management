@@ -92,6 +92,18 @@ export const listOpenings = asyncHandler(async (req, res) => {
   const conditions = [];
   const values = [];
 
+  const canViewAllOpenings = [
+    'SUPER_ADMIN',
+    'ADMIN'
+  ].includes(req.user?.role);
+
+  if (!canViewAllOpenings) {
+    conditions.push(
+      'jo.assigned_recruiter_id = ?'
+    );
+    values.push(req.user.id);
+  }
+
   if (clientId) {
     const parsedClientId = Number(clientId);
 
@@ -251,6 +263,19 @@ export const getOpeningById = asyncHandler(
     );
 
     if (!opening) {
+      throw new AppError('Opening not found.', 404);
+    }
+
+    const canViewOpeningDetails = [
+      'SUPER_ADMIN',
+      'ADMIN'
+    ].includes(req.user?.role);
+
+    if (
+      !canViewOpeningDetails &&
+      Number(opening.assigned_recruiter_id) !==
+        Number(req.user.id)
+    ) {
       throw new AppError('Opening not found.', 404);
     }
 

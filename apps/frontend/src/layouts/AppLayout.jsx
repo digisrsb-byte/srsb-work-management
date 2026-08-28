@@ -75,7 +75,13 @@ export default function AppLayout({ mode }) {
         return isSrsbHeadAdmin(user);
       }
 
-      if (['/admin/employees', '/admin/passwords'].includes(item.path)) {
+      if (
+        [
+          '/admin/employees',
+          '/admin/passwords',
+          '/admin/openings'
+        ].includes(item.path)
+      ) {
         return ['SUPER_ADMIN', 'ADMIN'].includes(user?.role);
       }
       return true;

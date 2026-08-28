@@ -47,10 +47,7 @@ router.post(
   '/',
   allowRoles(
     'SUPER_ADMIN',
-    'ADMIN',
-    'HR',
-    'MANAGER',
-    'RECRUITER'
+    'ADMIN'
   ),
   [
     body('clientId')
@@ -95,10 +92,7 @@ router.put(
   '/:id',
   allowRoles(
     'SUPER_ADMIN',
-    'ADMIN',
-    'HR',
-    'MANAGER',
-    'RECRUITER'
+    'ADMIN'
   ),
   [
     body('clientId')
