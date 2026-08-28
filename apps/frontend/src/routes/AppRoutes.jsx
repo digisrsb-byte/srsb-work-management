@@ -99,7 +99,16 @@ export default function AppRoutes() {
 
         <Route
           path="/admin/openings"
-          element={<Openings />}
+          element={
+            <ProtectedRoute
+              roles={[
+                'SUPER_ADMIN',
+                'ADMIN'
+              ]}
+            >
+              <Openings />
+            </ProtectedRoute>
+          }
         />
 
         <Route

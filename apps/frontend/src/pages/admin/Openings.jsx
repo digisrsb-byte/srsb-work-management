@@ -75,7 +75,10 @@ function formatDate(value) {
 
 export default function Openings() {
   const { user } = useAuth();
-  const canManageRequirement = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER', 'RECRUITER'].includes(user?.role);
+  const canManageRequirement = [
+    'SUPER_ADMIN',
+    'ADMIN'
+  ].includes(user?.role);
   const addFormRef = useRef(null);
   const [openings, setOpenings] = useState([]);
   const [clients, setClients] = useState([]);
@@ -107,78 +110,133 @@ export default function Openings() {
 
   const debouncedSearch = useDebouncedValue(search, 300);
 
-  const loadData = useCallback(async ({ silent = false } = {}) => {
-    try {
-      if (!silent && !hasLoadedRef.current) {
-        setLoading(true);
-      }
+  const loadData = useCallback(
+    async ({ silent = false } = {}) => {
+      try {
+        if (
+          !silent &&
+          !hasLoadedRef.current
+        ) {
+          setLoading(true);
+        }
 
-      setError('');
+        setError('');
 
-      const openingParams = {};
+        const openingParams = {};
 
-      if (debouncedSearch.trim()) {
-        openingParams.search = debouncedSearch.trim();
-      }
+        if (debouncedSearch.trim()) {
+          openingParams.search =
+            debouncedSearch.trim();
+        }
 
+        const openingsResponse =
+          await api.get(
+            '/openings',
+            {
+              params: openingParams
+            }
+          );
 
-      const [
-        openingsResult,
-        clientsResult,
-        employeesResult
-      ] = await Promise.allSettled([
-        api.get('/openings', { params: openingParams }),
-        api.get('/clients'),
-        api.get('/employees', {
-          params: { status: 'ACTIVE' }
-        })
-      ]);
+        const nextOpenings =
+          openingsResponse.data.data || [];
 
-      if (openingsResult.status === 'fulfilled') {
-        setOpenings(openingsResult.value.data.data || []);
-      }
+        setOpenings(nextOpenings);
 
-      if (clientsResult.status === 'fulfilled') {
-        setClients(clientsResult.value.data.data || []);
-      }
+        if (!canManageRequirement) {
+          const scopedClients =
+            Array.from(
+              new Map(
+                nextOpenings.map(
+                  (opening) => [
+                    String(
+                      opening.client_id
+                    ),
+                    {
+                      id:
+                        opening.client_id,
+                      company_name:
+                        opening.company_name ||
+                        'Assigned Company',
+                      industry: ''
+                    }
+                  ]
+                )
+              ).values()
+            );
 
-      if (employeesResult.status === 'fulfilled') {
-        setEmployees(
-          employeesResult.value.data.data || []
+          setClients(scopedClients);
+          setEmployees([]);
+          return;
+        }
+
+        const [
+          clientsResult,
+          employeesResult
+        ] = await Promise.allSettled([
+          api.get('/clients'),
+          api.get('/employees', {
+            params: {
+              status: 'ACTIVE'
+            }
+          })
+        ]);
+
+        if (
+          clientsResult.status ===
+          'fulfilled'
+        ) {
+          setClients(
+            clientsResult.value.data.data ||
+              []
+          );
+        } else {
+          setClients([]);
+        }
+
+        if (
+          employeesResult.status ===
+          'fulfilled'
+        ) {
+          setEmployees(
+            employeesResult.value.data.data ||
+              []
+          );
+        } else {
+          setEmployees([]);
+        }
+
+        if (
+          clientsResult.status ===
+            'rejected' ||
+          employeesResult.status ===
+            'rejected'
+        ) {
+          setError(
+            'Some management reference data could not be refreshed. Existing requirements remain usable.'
+          );
+        }
+      } catch (err) {
+        showError(
+          err.response?.data?.message ||
+            (
+              canManageRequirement
+                ? 'Unable to load requirements.'
+                : 'Unable to load your assigned openings.'
+            )
         );
-      }
+      } finally {
+        if (!silent) {
+          setLoading(false);
+        }
 
-      const failedResults = [
-        openingsResult,
-        clientsResult,
-        employeesResult
-      ].filter((result) => result.status === 'rejected');
-
-      if (failedResults.length === 3) {
-        throw failedResults[0].reason;
+        hasLoadedRef.current = true;
       }
-
-      if (clientsResult.status === 'rejected') {
-        setError(
-          'Client list could not be loaded. Refresh before adding a requirement.'
-        );
-      } else if (failedResults.length) {
-        setError(
-          'Some information could not be refreshed, but available lists remain usable.'
-        );
-      }
-    } catch (err) {
-      showError(
-        err.response?.data?.message ||
-          'Unable to load requirements.'
-      );
-    } finally {
-      if (!silent) {
-        setLoading(false);
-      }
-      hasLoadedRef.current = true;
-    }
-  }, [debouncedSearch]);
+    },
+    [
+      debouncedSearch,
+      canManageRequirement
+    ]
+  );
 
   useEffect(() => {
     loadData();
@@ -826,12 +884,14 @@ export default function Openings() {
       <div className="opening-header">
         <div>
           <h1 className="page-title">
-            Requirements & Openings
+            {canManageRequirement
+              ? 'Requirements & Openings'
+              : 'My Assigned Openings'}
           </h1>
-
           <p className="page-subtitle">
-            View client brands, job roles, opening counts
-            and assigned employees.
+            {canManageRequirement
+              ? 'View client brands, job roles, opening counts and assigned employees.'
+              : 'Only positions assigned to you are shown here.'}
           </p>
         </div>
 
@@ -842,7 +902,11 @@ export default function Openings() {
             <input
               type="search"
               className="opening-search"
-              placeholder="Search company, role or employee..."
+              placeholder={
+                canManageRequirement
+                  ? 'Search company, role or employee...'
+                  : 'Search my assigned openings...'
+              }
               value={search}
               onInput={(event) =>
                 setSearch(event.currentTarget.value)
@@ -1174,7 +1238,17 @@ export default function Openings() {
         )}
       </div>
 
-      {!clients.length && (
+      {!canManageRequirement &&
+        !clients.length && (
+          <div className="message message-warning">
+            {debouncedSearch.trim()
+              ? 'No assigned opening matches your search.'
+              : 'No job openings are currently assigned to you.'}
+          </div>
+        )}
+
+      {canManageRequirement &&
+        !clients.length && (
         <div
           className="message message-warning"
           style={{
