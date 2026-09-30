@@ -93,26 +93,20 @@ function hours(minutes) {
   }m`;
 }
 
-function inputDateTime(
-  date,
-  value,
-  fallback
-) {
+function inputTime(value, fallback) {
   if (value) {
     const wallClock = String(value)
       .trim()
       .match(
-        /^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})/
+        /^\d{4}-\d{2}-\d{2}[T ](\d{2}):(\d{2})/
       );
 
     if (wallClock) {
-      return `${wallClock[1]}T${wallClock[2]}:${wallClock[3]}`;
+      return `${wallClock[1]}:${wallClock[2]}`;
     }
   }
 
-  return fallback
-    ? `${date}T${fallback}`
-    : '';
+  return fallback || '';
 }
 
 export default function AttendanceManagement() {
@@ -155,6 +149,12 @@ export default function AttendanceManagement() {
 
   const [error, setError] =
     useState('');
+
+  const [editError, setEditError] =
+    useState('');
+
+  const [saving, setSaving] =
+    useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -261,45 +261,56 @@ export default function AttendanceManagement() {
         )
           ? status
           : 'PRESENT',
-      punchIn: inputDateTime(
-        selectedDate,
+      punchIn: inputTime(
         employee.punchIn,
         '09:30'
       ),
-      punchOut: inputDateTime(
-        selectedDate,
+      punchOut: inputTime(
         employee.punchOut,
         ''
       ),
       remarks:
         employee.remarks || ''
     });
+    setEditError('');
   }
 
   async function save(event) {
     event.preventDefault();
 
     try {
-      setError('');
+      setSaving(true);
+      setEditError('');
 
       const response = await api.put(
         '/attendance/admin-adjust',
-        editing
+        {
+          ...editing,
+          punchIn: editing.punchIn
+            ? `${editing.date}T${editing.punchIn}`
+            : '',
+          punchOut: editing.punchOut
+            ? `${editing.date}T${editing.punchOut}`
+            : ''
+        }
       );
 
       setMessage(
         response.data.message ||
           'Attendance updated successfully.'
       );
+      setError('');
 
       setEditing(null);
 
       await load();
     } catch (requestError) {
-      setError(
+      setEditError(
         requestError.response?.data?.message ||
           'Attendance could not be updated.'
       );
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -876,6 +887,12 @@ export default function AttendanceManagement() {
               </button>
             </div>
 
+            {editError && (
+              <div className="message message-error">
+                {editError}
+              </div>
+            )}
+
             <label className="form-group">
               <span>Status</span>
 
@@ -906,11 +923,11 @@ export default function AttendanceManagement() {
             </label>
 
             <label className="form-group">
-              <span>Punch In</span>
+              <span>Punch In ({editing.date})</span>
 
               <input
                 className="input"
-                type="datetime-local"
+                type="time"
                 value={editing.punchIn}
                 onChange={(event) =>
                   setEditing(
@@ -925,11 +942,11 @@ export default function AttendanceManagement() {
             </label>
 
             <label className="form-group">
-              <span>Punch Out</span>
+              <span>Punch Out ({editing.date})</span>
 
               <input
                 className="input"
-                type="datetime-local"
+                type="time"
                 value={editing.punchOut}
                 onChange={(event) =>
                   setEditing(
@@ -962,8 +979,18 @@ export default function AttendanceManagement() {
               />
             </label>
 
-            <button className="btn btn-primary">
-              Save Attendance
+            <p className="page-subtitle">
+              To change another day, close this and
+              select that date on the calendar.
+            </p>
+
+            <button
+              className="btn btn-primary"
+              disabled={saving}
+            >
+              {saving
+                ? 'Saving…'
+                : 'Save Attendance'}
             </button>
           </form>
         </div>
