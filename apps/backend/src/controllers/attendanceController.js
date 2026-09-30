@@ -2,6 +2,14 @@ import { pool } from '../config/database.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
 import { backfillApprovedLeaveAttendance } from '../utils/leaveAttendance.js';
+import {
+  getEmployeeSchedule,
+  getScheduleInputs,
+  resolveRange
+} from '../services/attendanceScheduleService.js';
+import { addDays, summarizeDays } from '../services/attendanceDayRules.js';
+
+export const MAX_HISTORY_DAYS = 60;
 
 const allowedStatuses = [
   'PRESENT',
@@ -109,8 +117,10 @@ export const punchIn = asyncHandler(async (req, res) => {
     [employeeId]
   );
 
+  // The punch_in IS NULL guard and the unique (employee_id, attendance_date) key stop
+  // simultaneous requests from recording two punch-ins.
   if (existing.length) {
-    await pool.query(
+    const [result] = await pool.query(
       `UPDATE attendance
        SET
          punch_in = ${INDIA_NOW_SQL},
@@ -120,33 +130,44 @@ export const punchIn = asyncHandler(async (req, res) => {
          included_break_minutes = 0,
          deducted_break_minutes = 0,
          status = 'PRESENT'
-       WHERE id = ?`,
+       WHERE id = ?
+         AND punch_in IS NULL`,
       [existing[0].id]
     );
+    if (!result.affectedRows) {
+      throw new AppError('You have already punched in today.', 409);
+    }
   } else {
-    await pool.query(
-      `INSERT INTO attendance (
-         employee_id,
-         attendance_date,
-         punch_in,
-         total_work_minutes,
-         total_break_minutes,
-         included_break_minutes,
-         deducted_break_minutes,
-         status
-       )
-       VALUES (
-         ?,
-         ${INDIA_DATE_SQL},
-         ${INDIA_NOW_SQL},
-         0,
-         0,
-         0,
-         0,
-         'PRESENT'
-       )`,
-      [employeeId]
-    );
+    try {
+      await pool.query(
+        `INSERT INTO attendance (
+           employee_id,
+           attendance_date,
+           punch_in,
+           total_work_minutes,
+           total_break_minutes,
+           included_break_minutes,
+           deducted_break_minutes,
+           status
+         )
+         VALUES (
+           ?,
+           ${INDIA_DATE_SQL},
+           ${INDIA_NOW_SQL},
+           0,
+           0,
+           0,
+           0,
+           'PRESENT'
+         )`,
+        [employeeId]
+      );
+    } catch (error) {
+      if (error.code === 'ER_DUP_ENTRY') {
+        throw new AppError('You have already punched in today.', 409);
+      }
+      throw error;
+    }
   }
 
   const [[record]] = await pool.query(
@@ -298,7 +319,7 @@ export const punchOut = asyncHandler(async (req, res) => {
   const status =
     statusForWorkedMinutes(effectiveMinutes);
 
-  await pool.query(
+  const [result] = await pool.query(
     `UPDATE attendance
      SET
        punch_out = ${INDIA_NOW_SQL},
@@ -307,7 +328,8 @@ export const punchOut = asyncHandler(async (req, res) => {
        included_break_minutes = ?,
        deducted_break_minutes = ?,
        status = ?
-     WHERE id = ?`,
+     WHERE id = ?
+       AND punch_out IS NULL`,
     [
       effectiveMinutes,
       totalBreakMinutes,
@@ -317,6 +339,10 @@ export const punchOut = asyncHandler(async (req, res) => {
       attendance.id
     ]
   );
+
+  if (!result.affectedRows) {
+    throw new AppError('You have already punched out today.', 409);
+  }
 
   const [[record]] = await pool.query(
     `SELECT
@@ -369,6 +395,60 @@ export const myAttendance = asyncHandler(
     res.json({
       success: true,
       data: rows
+    });
+  }
+);
+
+export const myAttendanceCalendar = asyncHandler(
+  async (req, res) => {
+    ensureEmployeeAccount(req);
+
+    const schedule = await getEmployeeSchedule(req.user.id);
+    const month = req.query.month || schedule.today.slice(0, 7);
+    const { start, end } = monthRange(month);
+    const inputs = await getScheduleInputs(req.user.id, schedule, start, end);
+    const days = resolveRange(schedule, inputs, start, end);
+
+    res.set('Cache-Control', 'no-store');
+    res.json({
+      success: true,
+      data: {
+        month,
+        today: schedule.today,
+        joiningDate: schedule.joiningDate,
+        workingDays: schedule.workingDays,
+        workWeekSource: schedule.workWeekSource,
+        records: inputs.records,
+        holidays: inputs.holidays,
+        days,
+        summary: summarizeDays(days)
+      }
+    });
+  }
+);
+
+// Latest first, from today back `days` calendar days (never before the joining date).
+export const myAttendanceHistory = asyncHandler(
+  async (req, res) => {
+    ensureEmployeeAccount(req);
+
+    const schedule = await getEmployeeSchedule(req.user.id);
+    const span = Math.min(Math.max(Number(req.query.days) || 7, 1), MAX_HISTORY_DAYS);
+    let start = addDays(schedule.today, -(span - 1));
+    if (schedule.joiningDate && schedule.joiningDate > start) {
+      start = schedule.joiningDate > schedule.today ? schedule.today : schedule.joiningDate;
+    }
+    const inputs = await getScheduleInputs(req.user.id, schedule, start, schedule.today);
+    const days = resolveRange(schedule, inputs, start, schedule.today).reverse();
+
+    res.set('Cache-Control', 'no-store');
+    res.json({
+      success: true,
+      data: {
+        today: schedule.today,
+        workingDays: schedule.workingDays,
+        days
+      }
     });
   }
 );

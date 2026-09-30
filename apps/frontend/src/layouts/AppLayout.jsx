@@ -5,6 +5,7 @@ import {
 } from 'react';
 
 import {
+  ArrowLeft,
   Bell,
   CalendarDays,
   CheckCheck,
@@ -17,7 +18,9 @@ import {
 
 import {
   NavLink,
-  Outlet
+  Outlet,
+  useLocation,
+  useNavigate
 } from 'react-router-dom';
 
 import { useAuth } from '../context/AuthContext.jsx';
@@ -25,7 +28,8 @@ import BrandLogo from '../components/BrandLogo.jsx';
 
 import {
   adminNavigation,
-  employeeNavigation
+  employeeNavigation,
+  onboardingOnlyNavigation
 } from '../config/navigation.js';
 
 import api from '../services/api.js';
@@ -45,6 +49,51 @@ function formatNotificationDate(value) {
   });
 }
 
+function getPortalLabel(user, mode) {
+  if (mode === 'employee') {
+    return 'Employee';
+  }
+
+  switch (user?.role) {
+    case 'SUPER_ADMIN':
+      return 'Super Admin';
+    case 'ADMIN':
+      return 'Admin';
+    case 'HR':
+      return 'HR';
+    case 'MANAGER':
+      return 'Manager';
+    case 'RECRUITER':
+      return 'Recruiter';
+    default:
+      return mode === 'admin' ? 'Admin' : 'Employee';
+  }
+}
+
+const MANAGEMENT_PORTAL_LABELS = {
+  SUPER_ADMIN: 'Super Admin',
+  ADMIN: 'Admin',
+  HR: 'HR',
+  MANAGER: 'Manager'
+};
+
+const PORTAL_RETURN_KEY = 'srsb_employee_portal_return';
+
+function rememberManagementPage(pathname) {
+  sessionStorage.setItem(PORTAL_RETURN_KEY, pathname);
+}
+
+/** Role-specific return from My Employee Portal to the management page it was opened from */
+function getManagementPortalReturn(user) {
+  const portal = MANAGEMENT_PORTAL_LABELS[user?.role];
+  if (!portal) return null;
+  const saved = sessionStorage.getItem(PORTAL_RETURN_KEY);
+  return {
+    label: `Back to ${portal} Portal`,
+    path: saved && saved.startsWith('/admin') ? saved : '/admin'
+  };
+}
+
 export default function AppLayout({ mode }) {
   const [open, setOpen] = useState(false);
 
@@ -61,8 +110,15 @@ export default function AppLayout({ mode }) {
     useState(false);
 
   const notificationRef = useRef(null);
+  const navigate = useNavigate();
+  const location = useLocation();
 
   const { user, logout } = useAuth();
+  const portalLabel = getPortalLabel(user, mode);
+  const managementReturn =
+    mode === 'employee' && !user?.onboardingOnly
+      ? getManagementPortalReturn(user)
+      : null;
 
   const filteredAdminNavigation = adminNavigation.map((group) => ({
     ...group,
@@ -73,6 +129,15 @@ export default function AppLayout({ mode }) {
 
       if (item.path === '/admin/activation-codes') {
         return isSrsbHeadAdmin(user);
+      }
+
+      if (item.path === '/admin/access') {
+        return user?.role === 'SUPER_ADMIN';
+      }
+
+      // Employee Payslips: Admin / HR / Manager only, not Super Admin
+      if (item.path === '/admin/employee-payslips') {
+        return ['ADMIN', 'HR', 'MANAGER'].includes(user?.role);
       }
 
       if (
@@ -102,6 +167,11 @@ export default function AppLayout({ mode }) {
       ? {
           section: 'My Employee Portal',
           items: [
+            {
+              label: 'Open My Employee Portal',
+              path: '/employee',
+              icon: UserCircle
+            },
             {
               label: 'My Dashboard',
               path: '/admin/my-dashboard',
@@ -136,29 +206,33 @@ export default function AppLayout({ mode }) {
         }
       : null;
 
+  // My Employee Portal at TOP for Admin / HR / Manager
   const adminGroups = [
+    ...(adminSelfService ? [adminSelfService] : []),
     ...regularAdminGroups,
-    ...(adminSelfService
-      ? [adminSelfService]
-      : []),
     ...(systemGroup ? [systemGroup] : [])
   ];
 
   const navigation =
     mode === 'admin'
       ? adminGroups
-      : employeeNavigation.map((group) => ({
-          ...group,
-          items: group.items.filter((item) => {
-            if (item.path === '/employee/openings') {
-              return ['RECRUITER', 'EMPLOYEE'].includes(user?.role);
-            }
-            if (item.path === '/employee/candidates') {
-              return ['RECRUITER', 'EMPLOYEE'].includes(user?.role);
-            }
-            return true;
-          })
-        })).filter((group) => group.items.length > 0);
+      : user?.onboardingOnly
+        ? onboardingOnlyNavigation
+        : employeeNavigation
+          .map((group, index) => ({
+            ...group,
+            section: managementReturn && index === 0 ? 'My Employee Portal' : group.section,
+            items: group.items.filter((item) => {
+              if (item.path === '/employee/openings') {
+                return ['RECRUITER', 'EMPLOYEE'].includes(user?.role);
+              }
+              if (item.path === '/employee/candidates') {
+                return ['RECRUITER', 'EMPLOYEE'].includes(user?.role);
+              }
+              return true;
+            })
+          }))
+          .filter((group) => group.items.length > 0);
 
   async function loadUnreadCount() {
     try {
@@ -466,6 +540,27 @@ export default function AppLayout({ mode }) {
       >
         <BrandLogo name="SRSB Work Management" />
 
+        <div
+          className="portal-badge"
+          aria-label={`Current portal: ${portalLabel}`}
+        >
+          {portalLabel} Portal
+        </div>
+
+        {managementReturn ? (
+          <button
+            type="button"
+            className="portal-badge portal-back"
+            onClick={() => {
+              setOpen(false);
+              navigate(managementReturn.path);
+            }}
+          >
+            <ArrowLeft size={15} />
+            {managementReturn.label}
+          </button>
+        ) : null}
+
         <div className="nav-section">
           {navigation.map((group) => (
             <div
@@ -496,9 +591,12 @@ export default function AppLayout({ mode }) {
                           : ''
                       }`
                     }
-                    onClick={() =>
-                      setOpen(false)
-                    }
+                    onClick={() => {
+                      if (mode === 'admin' && path === '/employee') {
+                        rememberManagementPage(location.pathname);
+                      }
+                      setOpen(false);
+                    }}
                   >
                     <Icon size={18} />
                     {label}
@@ -531,8 +629,12 @@ export default function AppLayout({ mode }) {
                 fontSize: 12
               }}
             >
-              {user?.designation ||
-                user?.role}
+              {managementReturn
+                ? 'My Employee Portal'
+                : `${portalLabel} Portal`}
+              {user?.designation
+                ? ` · ${user.designation}`
+                : ''}
             </div>
           </div>
 
@@ -635,7 +737,10 @@ export default function AppLayout({ mode }) {
 
             <button
               className="btn btn-secondary"
-              onClick={logout}
+              onClick={() => {
+                sessionStorage.removeItem(PORTAL_RETURN_KEY);
+                logout();
+              }}
             >
               <LogOut size={17} />
               <span>Logout</span>

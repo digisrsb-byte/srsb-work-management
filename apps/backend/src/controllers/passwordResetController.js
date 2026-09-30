@@ -6,6 +6,13 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
 import { sendPasswordResetOtp } from '../utils/mailer.js';
 import { withTenantByCompanyCode } from '../services/authService.js';
+import { canSignInForOnboarding } from '../services/employeeOnboardingService.js';
+
+// Accounts awaiting activation set their first password through the invitation link instead.
+async function canResetPassword(employee) {
+  if (!employee || employee.login_status === 'PENDING_ACTIVATION') return false;
+  return employee.status === 'ACTIVE' || canSignInForOnboarding(employee);
+}
 
 const MAX_OTP_ATTEMPTS = 5;
 
@@ -36,7 +43,8 @@ export const requestPasswordReset = asyncHandler(async (req, res) => {
     req.body.companyCode || req.body.company_code,
     async () => {
       const [rows] = await pool.query(
-        `SELECT id, employee_id, username, full_name, email, recovery_email, role, account_type, status
+        `SELECT id, employee_id, username, full_name, email, recovery_email, role, account_type, status,
+                login_status, is_demo
            FROM employees
           WHERE LOWER(COALESCE(employee_id, '')) = ?
              OR LOWER(COALESCE(username, '')) = ?
@@ -47,7 +55,7 @@ export const requestPasswordReset = asyncHandler(async (req, res) => {
 
       const account = rows[0];
 
-      if (!account || account.status !== 'ACTIVE') {
+      if (!(await canResetPassword(account))) {
         return res.json({
           success: true,
           recoveryType: 'REQUEST',

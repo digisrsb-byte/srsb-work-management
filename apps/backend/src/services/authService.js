@@ -5,6 +5,7 @@ import { pool, runWithTenant } from '../config/database.js';
 import { AppError } from '../utils/AppError.js';
 import { findCompanyByCode } from './tenantProvisioner.js';
 import { normalizeCompanyCode } from './onboardingService.js';
+import { canSignInForOnboarding } from './employeeOnboardingService.js';
 
 const HEAD_ADMIN_EMAIL = String(
   process.env.SUPER_ADMIN_EMAIL ||
@@ -73,7 +74,8 @@ function buildToken(account, tenant) {
       fullName: account.full_name,
       companyId: tenant.companyId,
       companyCode: tenant.companyCode,
-      dbName: tenant.dbName
+      dbName: tenant.dbName,
+      ...(account.onboardingOnly ? { onboardingOnly: true } : {})
     },
     env.jwtSecret,
     { expiresIn: env.jwtExpiresIn }
@@ -100,6 +102,9 @@ export async function login(loginId, password, companyCode) {
          e.account_type,
          e.designation,
          e.status,
+         e.login_status,
+         e.is_demo,
+         e.must_change_password,
          d.name AS department
        FROM employees e
        LEFT JOIN departments d
@@ -113,9 +118,27 @@ export async function login(loginId, password, companyCode) {
 
     const account = rows[0];
 
-    if (!account || account.status !== 'ACTIVE') {
+    if (
+      account &&
+      !account.is_demo &&
+      account.login_status === 'PENDING_ACTIVATION'
+    ) {
+      throw new AppError(
+        'Your account is not activated yet. Open the activation link emailed to you to verify your email and create your password. If the link has expired, ask HR to resend the invitation.',
+        403
+      );
+    }
+
+    // New joiners are INACTIVE until activation; they may only sign in to complete onboarding.
+    const onboardingOnly =
+      Boolean(account) &&
+      account.status !== 'ACTIVE' &&
+      (await canSignInForOnboarding(account));
+
+    if (!account || (account.status !== 'ACTIVE' && !onboardingOnly)) {
       invalidLogin();
     }
+    account.onboardingOnly = onboardingOnly;
 
     const isSystemAccount = account.account_type === 'SYSTEM';
 
@@ -150,6 +173,7 @@ export async function login(loginId, password, companyCode) {
     const token = buildToken(account, tenant);
 
     delete account.password_hash;
+    delete account.is_demo;
     account.accountType = account.account_type;
     delete account.account_type;
 

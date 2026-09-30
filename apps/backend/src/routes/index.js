@@ -16,14 +16,23 @@ import attendanceCorrectionRoutes from './attendanceCorrectionRoutes.js';
 import holidayRoutes from './holidayRoutes.js';
 import appUpdateRoutes from './appUpdateRoutes.js';
 import onboardingRoutes from './onboardingRoutes.js';
+import employeeOnboardingRoutes from './employeeOnboardingRoutes.js';
 import companyRoutes from './companyRoutes.js';
 import platformRoutes from './platformRoutes.js';
 import activationCodeRoutes from './activationCodeRoutes.js';
+import accessRoutes from './accessRoutes.js';
+import payrollRoutes from './payrollRoutes.js';
+import assetRoutes from './assetRoutes.js';
+import accessRequestRoutes from './accessRequestRoutes.js';
+import companyConfigRoutes from './companyConfigRoutes.js';
 
 const router = Router();
 
 router.use('/auth', authRoutes);
+// Public company setup (status / validate-activation / register-company) must
+// be mounted before employee onboarding, which requires authentication.
 router.use('/onboarding', onboardingRoutes);
+router.use('/onboarding', employeeOnboardingRoutes);
 router.use('/company', companyRoutes);
 router.use('/platform', platformRoutes);
 router.use('/activation-codes', activationCodeRoutes);
@@ -42,5 +51,10 @@ router.use('/invoices', invoiceRoutes);
 router.use('/attendance-corrections', attendanceCorrectionRoutes);
 router.use('/holidays', holidayRoutes);
 router.use('/app-updates', appUpdateRoutes);
+router.use('/access', accessRoutes);
+router.use('/payroll', payrollRoutes);
+router.use('/assets', assetRoutes);
+router.use('/access-requests', accessRequestRoutes);
+router.use('/company-config', companyConfigRoutes);
 
 export default router;

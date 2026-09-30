@@ -32,7 +32,8 @@ export const adminDashboard = asyncHandler(async (req, res) => {
   const [[employeeRow]] = await pool.query(
     `SELECT COUNT(*) total, SUM(e.status = 'ACTIVE') active
      FROM employees e
-     WHERE COALESCE(e.account_type, 'EMPLOYEE') = 'EMPLOYEE'`
+     WHERE COALESCE(e.account_type, 'EMPLOYEE') = 'EMPLOYEE'
+       AND e.is_demo = 0`
   );
   const [[clientRow]] = await pool.query(
     `SELECT COUNT(*) total, SUM(status = 'ACTIVE') active FROM clients`
@@ -43,7 +44,7 @@ export const adminDashboard = asyncHandler(async (req, res) => {
      FROM job_openings`
   );
   const [[candidateRow]] = await pool.query(
-    `SELECT COUNT(*) total FROM candidates`
+    `SELECT COUNT(*) total FROM candidates WHERE is_demo = 0`
   );
   const [[taskRow]] = await pool.query(
     `SELECT COUNT(*) total,

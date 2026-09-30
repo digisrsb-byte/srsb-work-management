@@ -8,6 +8,7 @@ import { ensureSecuritySchema } from '../migrations/ensureSecuritySchema.js';
 import { ensureEmployeeProfileSchema } from '../migrations/ensureEmployeeProfileSchema.js';
 import { ensureV110Schema } from '../migrations/ensureV110Schema.js';
 import { ensureV120Schema } from '../migrations/ensureV120Schema.js';
+import { ensureHrmsModulesSchema } from '../migrations/ensureHrmsModulesSchema.js';
 
 import { env } from '../config/env.js';
 
@@ -50,6 +51,7 @@ export async function migrateTenantDatabase(
     dbName,
     forceSrsbInvoiceProfile
   });
+  await ensureHrmsModulesSchema({ dbName });
 
   return pool;
 }

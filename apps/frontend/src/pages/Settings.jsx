@@ -12,6 +12,7 @@ import {
 import api from '../services/api.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useCompany } from '../context/CompanyContext.jsx';
+import CompanyConfigPanel from '../components/CompanyConfigPanel.jsx';
 
 const defaultPreferences = {
   emailNotifications: true,
@@ -839,6 +840,8 @@ export default function Settings() {
           </div>
         </div>
       </div>
+
+      <CompanyConfigPanel />
     </div>
   );
 }

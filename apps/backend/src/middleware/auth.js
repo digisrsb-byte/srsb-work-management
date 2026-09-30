@@ -3,6 +3,27 @@ import { env } from '../config/env.js';
 import { runWithTenant } from '../config/database.js';
 import { AppError } from '../utils/AppError.js';
 import { findCompanyById, findCompanyByCode } from '../services/tenantProvisioner.js';
+import {
+  assertPermission,
+  assertCompanyAccess
+} from '../services/permissionService.js';
+
+// A joiner who is not yet activated holds an onboarding-only session: it reaches their own
+// onboarding case, notifications and password change, and nothing else.
+const ONBOARDING_ONLY_ROUTES = [
+  { methods: ['GET', 'POST'], pattern: /^\/api\/onboarding(\/|\?|$)/ },
+  { methods: ['GET', 'PUT'], pattern: /^\/api\/notifications(\/|\?|$)/ },
+  { methods: ['GET'], pattern: /^\/api\/auth\/me(\?|$)/ },
+  { methods: ['GET'], pattern: /^\/api\/profile\/me(\?|$)/ },
+  { methods: ['PUT'], pattern: /^\/api\/profile\/password(\?|$)/ }
+];
+
+function isAllowedForOnboardingOnly(req) {
+  const url = req.originalUrl || '';
+  return ONBOARDING_ONLY_ROUTES.some(
+    (route) => route.methods.includes(req.method) && route.pattern.test(url)
+  );
+}
 
 /**
  * Verify JWT and bind the request to the company tenant pool via ALS.
@@ -24,6 +45,15 @@ export function authenticate(req, res, next) {
   } catch {
     return next(
       new AppError('Invalid or expired login session.', 401)
+    );
+  }
+
+  if (payload.onboardingOnly && !isAllowedForOnboardingOnly(req)) {
+    return next(
+      new AppError(
+        'Your account is limited to onboarding until HR activates it. Complete your onboarding checklist, then sign in again after activation.',
+        403
+      )
     );
   }
 
@@ -134,4 +164,40 @@ export function requireSrsbHeadAdmin(req, res, next) {
   }
 
   return next();
+}
+
+export function requirePermission(module, action) {
+  return async (req, res, next) => {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required.', 401);
+      }
+      await assertPermission(req.user, module, action);
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
+/**
+ * `companyId` here is an employer entity inside the tenant DB
+ * (`companies` table), not the master registry id on `req.user.companyId`.
+ */
+export function requireCompanyAccess(getCompanyId) {
+  return async (req, res, next) => {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required.', 401);
+      }
+      const companyId =
+        typeof getCompanyId === 'function'
+          ? await getCompanyId(req)
+          : req.params.companyId || req.body.companyId;
+      await assertCompanyAccess(req.user, Number(companyId));
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
 }

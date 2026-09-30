@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, Pencil, Search, Trash2, X } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { MailCheck, Package, Plus, Pencil, Search, Trash2, X } from 'lucide-react';
 import api from '../../services/api.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import useDebouncedValue from '../../hooks/useDebouncedValue.js';
+import {
+  DemoBadge,
+  OnboardingResultMessage,
+  REVIEWER_ROLES
+} from '../onboarding/onboardingUi.jsx';
+import AddEmployeeWizard from './AddEmployeeWizard.jsx';
 
 const emptyForm = {
   employeeId: '',
@@ -42,12 +49,22 @@ export default function Employees() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [companies, setCompanies] = useState([]);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [createResult, setCreateResult] = useState(null);
+  const [assetPanel, setAssetPanel] = useState(null);
+  const [assetPanelError, setAssetPanelError] = useState('');
+  const [loadingAssets, setLoadingAssets] = useState(false);
   const debouncedSearch = useDebouncedValue(search, 300);
 
   const loadMeta = useCallback(async () => {
-    const response = await api.get('/employees/form-meta');
+    const [response, companiesResponse] = await Promise.all([
+      api.get('/employees/form-meta'),
+      api.get('/access/companies').catch(() => ({ data: { data: [] } }))
+    ]);
     setDepartments(response.data.data.departments || []);
     setManagers(response.data.data.managers || []);
+    setCompanies(companiesResponse.data.data || []);
   }, []);
 
   const loadEmployees = useCallback(async () => {
@@ -89,7 +106,27 @@ export default function Employees() {
     setForm(emptyForm);
     setMessage('');
     setError('');
+    setCreateResult(null);
+    setShowOnboarding(false);
     setShowForm(true);
+  }
+
+  function openOnboarding() {
+    closeForm();
+    setMessage('');
+    setError('');
+    setCreateResult(null);
+    setShowOnboarding(true);
+  }
+
+  async function handleOnboardingCreated(result) {
+    setShowOnboarding(false);
+    setCreateResult(result);
+    try {
+      await loadEmployees();
+    } catch {
+      setError('Employee created, but the list could not be refreshed.');
+    }
   }
 
   function openEdit(employee) {
@@ -122,6 +159,22 @@ export default function Employees() {
     setForm(emptyForm);
   }
 
+  async function openEmployeeAssets(employee) {
+    setAssetPanelError('');
+    setLoadingAssets(true);
+    setAssetPanel({ employee, assets: [] });
+    try {
+      const res = await api.get(`/assets/employee/${employee.id}`);
+      setAssetPanel(res.data.data);
+    } catch (err) {
+      setAssetPanelError(
+        err.response?.data?.message || 'Unable to load employee assets.'
+      );
+    } finally {
+      setLoadingAssets(false);
+    }
+  }
+
   async function submit(event) {
     event.preventDefault();
     try {
@@ -142,7 +195,11 @@ export default function Employees() {
       closeForm();
       await Promise.all([loadMeta(), loadEmployees()]);
     } catch (requestError) {
-      setError(requestError.response?.data?.message || 'Employee could not be saved.');
+      const blockers = requestError.response?.data?.details?.blockers;
+      const blockerText = Array.isArray(blockers) && blockers.length
+        ? ` Missing: ${blockers.map((blocker) => blocker.label).join(', ')}.`
+        : '';
+      setError((requestError.response?.data?.message || 'Employee could not be saved.') + blockerText);
     } finally {
       setSaving(false);
     }
@@ -168,13 +225,37 @@ export default function Employees() {
           <h1 className="page-title">Employees</h1>
           <p className="page-subtitle">Manage employee accounts, departments, designations and reporting lines.</p>
         </div>
-        <button className="btn btn-primary" type="button" onClick={openCreate}>
-          <Plus size={18} /> Add Employee
-        </button>
+        <div className="row-actions">
+          <button className="btn btn-secondary" type="button" onClick={openOnboarding}>
+            <MailCheck size={18} /> Onboard New Joiner
+          </button>
+          <button className="btn btn-primary" type="button" onClick={openCreate}>
+            <Plus size={18} /> Add Employee
+          </button>
+        </div>
       </div>
 
       {message && <div className="message message-success">{message}</div>}
       {error && <div className="message message-error">{error}</div>}
+
+      <OnboardingResultMessage
+        message={createResult?.message}
+        tone={createResult?.tone}
+        caseId={createResult?.caseId}
+        canOpenCase={REVIEWER_ROLES.includes(user?.role)}
+        style={{ marginBottom: 16 }}
+      />
+
+      {showOnboarding && (
+        <AddEmployeeWizard
+          onboardingOnly
+          companies={companies}
+          departments={departments}
+          roleOptions={allowedRoles.map((role) => ({ value: role, label: role.replaceAll('_', ' ') }))}
+          onCancel={() => setShowOnboarding(false)}
+          onCreated={handleOnboardingCreated}
+        />
+      )}
 
       {showForm && (
         <form className="card form-card" onSubmit={submit}>
@@ -224,24 +305,82 @@ export default function Employees() {
 
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Employee</th><th>Department</th><th>Designation</th><th>Role</th><th>Manager</th><th>Status</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Employee</th><th>Department</th><th>Designation</th><th>Role</th><th>Manager</th><th>Employer</th><th>Status</th><th>Onboarding</th><th>Actions</th></tr></thead>
             <tbody>
-              {!loading && !employees.length && <tr><td colSpan="7"><div className="empty-state">No employees found.</div></td></tr>}
+              {!loading && !employees.length && <tr><td colSpan="9"><div className="empty-state">No employees found.</div></td></tr>}
               {employees.map((employee) => (
                 <tr key={employee.id}>
-                  <td><strong>{employee.full_name}</strong><div className="cell-muted">{employee.employee_id || employee.username || 'No login ID'} · {employee.email || 'No email'}</div></td>
+                  <td><strong>{employee.full_name}</strong>{employee.is_demo ? <> <DemoBadge /></> : null}<div className="cell-muted">{employee.employee_id || employee.username || 'No login ID'} · {employee.email || 'No email'}</div></td>
                   <td>{employee.department || '—'}</td>
                   <td>{employee.designation || '—'}</td>
                   <td><span className="badge badge-neutral">{employee.role}</span></td>
                   <td>{employee.manager_name || '—'}</td>
+                  <td>{employee.company_name || '—'}</td>
                   <td><span className={`badge badge-${String(employee.status).toLowerCase()}`}>{employee.status}</span></td>
-                  <td><div className="row-actions"><button className="icon-btn" type="button" onClick={() => openEdit(employee)} title="Edit"><Pencil size={17} /></button><button className="icon-btn danger" type="button" onClick={() => remove(employee)} title="Delete"><Trash2 size={17} /></button></div></td>
+                  <td>{String(employee.onboarding_status || 'NOT_STARTED').replaceAll('_', ' ')}</td>
+                  <td><div className="row-actions"><button className="icon-btn" type="button" onClick={() => openEmployeeAssets(employee)} title="Assets"><Package size={17} /></button><button className="icon-btn" type="button" onClick={() => openEdit(employee)} title="Edit"><Pencil size={17} /></button><button className="icon-btn danger" type="button" onClick={() => remove(employee)} title="Delete"><Trash2 size={17} /></button></div></td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </div>
+
+      {assetPanel ? (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="section-heading">
+            <div>
+              <h2 style={{ margin: 0 }}>Assets · {assetPanel.employee.full_name}</h2>
+              <p className="page-subtitle" style={{ marginTop: 4 }}>
+                {assetPanel.employee.employee_id} · {assetPanel.employee.designation || '—'} · {assetPanel.employee.department_name || '—'}
+              </p>
+            </div>
+            <div className="row-actions">
+              <Link className="btn btn-secondary" to={`/admin/assets?tab=employees&employee=${assetPanel.employee.id}`}>
+                Full asset record
+              </Link>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => {
+                  setAssetPanel(null);
+                  setAssetPanelError('');
+                }}
+              >
+                <X size={15} /> Close
+              </button>
+            </div>
+          </div>
+
+          {assetPanelError ? <div className="message message-error">{assetPanelError}</div> : null}
+          {loadingAssets ? (
+            <p className="page-subtitle">Loading assigned assets…</p>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr><th>Asset tag</th><th>Asset name</th><th>Type</th><th>Assigned date</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                  {(assetPanel.assets || []).length ? (
+                    assetPanel.assets.map((row) => (
+                      <tr key={row.assignment_id}>
+                        <td>{row.asset_tag}</td>
+                        <td>{row.asset_name || '—'}</td>
+                        <td>{row.category}</td>
+                        <td>{row.assigned_at ? String(row.assigned_at).slice(0, 10) : '—'}</td>
+                        <td>{row.assignment_status}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr><td colSpan={5} style={{ color: 'var(--text-muted)' }}>No active assets assigned to this employee.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

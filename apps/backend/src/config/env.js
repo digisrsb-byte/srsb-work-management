@@ -15,8 +15,13 @@ for (const key of required) {
   }
 }
 
+const nodeEnv = process.env.NODE_ENV || 'development';
+
 export const env = {
   port: Number(process.env.PORT || 5000),
+  nodeEnv,
+  // Demo onboarding records are never available in production, even if DEMO_MODE is set.
+  demoMode: process.env.DEMO_MODE === 'true' && nodeEnv !== 'production',
 
   dbHost: process.env.DB_HOST || 'localhost',
   dbPort: Number(process.env.DB_PORT || 3306),
@@ -101,5 +106,18 @@ export const env = {
   // Platform ops (create codes / list / suspend). Empty disables HTTP platform routes.
   platformAdminKey: String(
     process.env.PLATFORM_ADMIN_KEY || ''
-  ).trim()
+  ).trim(),
+
+  // Public address of the web app, used to build links in emails.
+  appBaseUrl: (
+    process.env.APP_BASE_URL ||
+    (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',')[0]
+  ).trim().replace(/\/+$/, ''),
+  inviteExpiryHours: Number(
+    process.env.INVITE_EXPIRY_HOURS || 48
+  ),
+  // When the activation email fails, return the link to the admin who resent it so local
+  // testing works without SMTP. Never enabled in production.
+  inviteLinkFallback:
+    nodeEnv !== 'production' && process.env.INVITE_LINK_FALLBACK !== 'false'
 };

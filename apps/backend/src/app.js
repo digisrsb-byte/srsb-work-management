@@ -38,6 +38,13 @@ app.use('/api/auth/reset-privileged-password', authLimiter);
 app.use('/api/onboarding/validate-activation', authLimiter);
 app.use('/api/onboarding/register-company', authLimiter);
 
+app.use('/api/auth/invitations', rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false
+}));
+
 app.get('/api/health', (req, res) => {
   res.json({ success: true, message: 'SRSB Work Management API is healthy.' });
 });

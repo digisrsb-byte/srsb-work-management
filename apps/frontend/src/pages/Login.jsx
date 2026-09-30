@@ -54,11 +54,12 @@ export default function Login() {
   const [searchParams] = useSearchParams();
   const initialCompanyCode = readInitialCompanyCode(searchParams);
   const initialSaved = getSavedLogin(initialCompanyCode);
+  const location = useLocation();
 
   const [mode, setMode] = useState('login');
   const [companyCode, setCompanyCode] = useState(initialCompanyCode);
   const [loginId, setLoginId] = useState(
-    () => initialSaved?.loginId || ''
+    () => location.state?.loginId || initialSaved?.loginId || ''
   );
   const [password, setPassword] = useState(
     () => initialSaved?.password || ''
@@ -69,12 +70,15 @@ export default function Login() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState(
+    location.state?.loginId
+      ? 'Your account is active. Enter the password you just created.'
+      : ''
+  );
   const [loading, setLoading] = useState(false);
 
   const { login } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
   const [branding, setBranding] = useState({
     displayName: 'Work Management',
     logoDataUrl: null
@@ -192,9 +196,11 @@ export default function Login() {
     });
 
     navigate(
-      managementRoles.includes(user.role)
-        ? '/admin'
-        : '/employee',
+      user.onboardingOnly
+        ? '/employee/onboarding'
+        : managementRoles.includes(user.role)
+          ? '/admin'
+          : '/employee',
       { replace: true }
     );
     return user;

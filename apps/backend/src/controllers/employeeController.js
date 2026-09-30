@@ -1,10 +1,121 @@
 import bcrypt from 'bcryptjs';
 import { pool } from '../config/database.js';
+import { env } from '../config/env.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
+import {
+  getCompanyIdsForUser,
+  assertCompanyAccess
+} from '../services/permissionService.js';
+import { writeAuditLog } from '../services/auditService.js';
+import { canActivateEmployee } from '../services/activationService.js';
+import {
+  announceOnboardingStarted,
+  createOnboardingCase,
+  invitationMessage,
+  invitationPayload,
+  resolveOnboardingCompanyId
+} from '../services/employeeOnboardingService.js';
 
 const allowedEmployeeStatuses = ['ACTIVE', 'INACTIVE', 'RESIGNED'];
 const allowedEmployeeRoles = ['ADMIN', 'HR', 'MANAGER', 'RECRUITER', 'EMPLOYEE'];
+const SCOPED_ROLES = ['ADMIN', 'HR', 'MANAGER'];
+
+function isOnboardingRequest(body) {
+  return body?.onboarding === true || body?.onboarding === 'true';
+}
+
+// Add Employee > onboarding mode: the same INACTIVE account + checklist + activation link
+// that a Recruitment joiner receives, but with no candidate record behind it.
+async function createEmployeeWithOnboarding(req, res) {
+  const fullName = String(req.body.fullName || '').trim();
+  const role = req.body.role || 'EMPLOYEE';
+  const designation = req.body.designation?.trim() || 'New Joiner';
+  const departmentId = req.body.departmentId ? Number(req.body.departmentId) : null;
+
+  if (!fullName) throw new AppError('Full name is required.', 400);
+  if (!allowedEmployeeRoles.includes(role)) throw new AppError('Invalid employee role.', 400);
+  if (req.user.role !== 'SUPER_ADMIN' && role === 'ADMIN') {
+    throw new AppError('Only Head Admin can create an Admin account.', 403);
+  }
+  if (departmentId) await validateDepartment(departmentId);
+
+  const companyId = await resolveOnboardingCompanyId(req.user, req.body.companyId || null);
+  if (!companyId) {
+    throw new AppError('No company is available in your access scope for this employee.', 403);
+  }
+
+  const connection = await pool.getConnection();
+  let result;
+  try {
+    await connection.beginTransaction();
+
+    result = await createOnboardingCase(connection, {
+      person: {
+        full_name: fullName,
+        email: req.body.email?.trim() || null,
+        phone: req.body.phone?.trim() || null
+      },
+      companyId,
+      actorId: req.user.id,
+      employeeCode: req.body.employeeId?.trim() || null,
+      role,
+      designation,
+      departmentId,
+      dateOfBirth: req.body.dateOfBirth || null,
+      joiningDate: req.body.joiningDate || null
+    });
+
+    if (SCOPED_ROLES.includes(role)) {
+      await connection.query(
+        `INSERT IGNORE INTO user_company_scopes (employee_id, company_id) VALUES (?, ?)`,
+        [result.employeeId, companyId]
+      );
+    }
+
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    if (error.code === 'ER_NO_REFERENCED_ROW_2') {
+      throw new AppError('The selected department does not exist.', 400);
+    }
+    throw error;
+  } finally {
+    connection.release();
+  }
+
+  await writeAuditLog({
+    employeeId: req.user.id,
+    action: 'EMPLOYEE_CREATED',
+    entityType: 'employees',
+    entityId: result.employeeId,
+    newValues: { employeeId: result.employeeCode, role, companyId, via: 'ONBOARDING' },
+    ipAddress: req.ip
+  });
+
+  const invitation = await announceOnboardingStarted({
+    result,
+    candidateName: fullName,
+    companyId,
+    actorId: req.user.id,
+    ipAddress: req.ip
+  });
+
+  res.status(201).json({
+    success: true,
+    message: `Employee account ${result.employeeCode} and onboarding case created for ${fullName}.${invitationMessage(invitation, result.employeeCode)}`,
+    data: {
+      id: result.employeeId,
+      onboarding: {
+        caseId: result.caseId,
+        created: true,
+        employeeCode: result.employeeCode,
+        isDemo: false,
+        invitation: invitationPayload(invitation)
+      }
+    }
+  });
+}
 
 async function validateDepartment(departmentId) {
   const id = Number(departmentId);
@@ -80,6 +191,18 @@ export const listEmployees = asyncHandler(async (req, res) => {
     conditions.push("e.role NOT IN ('SUPER_ADMIN','ADMIN')");
   }
 
+  if (!env.demoMode) conditions.push('e.is_demo = 0');
+
+  if (req.user.role !== 'SUPER_ADMIN') {
+    const companyIds = await getCompanyIdsForUser(req.user);
+    if (companyIds.length) {
+      conditions.push('(e.company_id IN (?) OR e.company_id IS NULL)');
+      values.push(companyIds);
+    } else {
+      conditions.push('e.company_id IS NULL');
+    }
+  }
+
   if (status) {
     if (!allowedEmployeeStatuses.includes(status)) throw new AppError('Invalid employee status.', 400);
     conditions.push('e.status = ?');
@@ -103,10 +226,12 @@ export const listEmployees = asyncHandler(async (req, res) => {
     `SELECT e.id, e.employee_id, e.username, e.full_name, e.email, e.recovery_email,
        e.phone, e.date_of_birth, e.role, e.account_type, e.designation, e.status,
        e.joining_date, e.department_id, e.manager_id, e.password_changed_at,
-       e.must_change_password, d.name AS department, manager.full_name AS manager_name
+       e.must_change_password, e.onboarding_status, e.login_status, e.company_id, e.is_demo,
+       d.name AS department, manager.full_name AS manager_name, c.name AS company_name
      FROM employees e
      LEFT JOIN departments d ON d.id = e.department_id
      LEFT JOIN employees manager ON manager.id = e.manager_id
+     LEFT JOIN companies c ON c.id = e.company_id
      WHERE ${conditions.join(' AND ')}
      ORDER BY e.created_at DESC
      LIMIT 1000`,
@@ -121,6 +246,10 @@ export const listEmployees = asyncHandler(async (req, res) => {
 });
 
 export const createEmployee = asyncHandler(async (req, res) => {
+  if (isOnboardingRequest(req.body)) {
+    return createEmployeeWithOnboarding(req, res);
+  }
+
   const employeeId = req.body.employeeId?.trim() || null;
   const username = req.body.username?.trim() || null;
   const fullName = req.body.fullName?.trim();
@@ -145,6 +274,10 @@ export const createEmployee = asyncHandler(async (req, res) => {
   const department = await validateDepartment(req.body.departmentId);
   const managerId = await validateManager(req.body.managerId);
 
+  const requestedCompanyId = req.body.companyId ? Number(req.body.companyId) : null;
+  if (requestedCompanyId) await assertCompanyAccess(req.user, requestedCompanyId);
+  const companyId = requestedCompanyId || (await getCompanyIdsForUser(req.user))[0] || null;
+
   const [existing] = await pool.query(
     `SELECT id FROM employees
      WHERE (? IS NOT NULL AND employee_id = ?)
@@ -159,11 +292,27 @@ export const createEmployee = asyncHandler(async (req, res) => {
     `INSERT INTO employees (
        employee_id, username, full_name, email, recovery_email, phone, date_of_birth,
        password_hash, role, designation, department_id, manager_id, joining_date,
-       status, account_type
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 'EMPLOYEE')`,
+       company_id, status, account_type
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 'EMPLOYEE')`,
     [employeeId, username, fullName, email, recoveryEmail, phone, dateOfBirth,
-      passwordHash, role, designation, department.id, managerId, joiningDate]
+      passwordHash, role, designation, department.id, managerId, joiningDate, companyId]
   );
+
+  if (SCOPED_ROLES.includes(role) && companyId) {
+    await pool.query(
+      `INSERT IGNORE INTO user_company_scopes (employee_id, company_id) VALUES (?, ?)`,
+      [result.insertId, companyId]
+    );
+  }
+
+  await writeAuditLog({
+    employeeId: req.user.id,
+    action: 'EMPLOYEE_CREATED',
+    entityType: 'employees',
+    entityId: result.insertId,
+    newValues: { employeeId, username, role, companyId },
+    ipAddress: req.ip
+  });
 
   res.status(201).json({ success: true, message: 'Employee created successfully.', data: { id: result.insertId } });
 });
@@ -173,10 +322,11 @@ export const updateEmployee = asyncHandler(async (req, res) => {
   if (!Number.isInteger(id) || id <= 0) throw new AppError('Invalid employee ID.', 400);
 
   const [[target]] = await pool.query(
-    `SELECT id, role FROM employees WHERE id = ? LIMIT 1`,
+    `SELECT id, employee_id, role, status, company_id FROM employees WHERE id = ? LIMIT 1`,
     [id]
   );
   if (!target) throw new AppError('Employee not found.', 404);
+  if (target.company_id) await assertCompanyAccess(req.user, target.company_id);
 
   const role = req.body.role || target.role;
   if (!allowedEmployeeRoles.includes(role)) throw new AppError('Invalid employee role.', 400);
@@ -191,19 +341,48 @@ export const updateEmployee = asyncHandler(async (req, res) => {
   const status = req.body.status || 'ACTIVE';
   if (!allowedEmployeeStatuses.includes(status)) throw new AppError('Invalid employee status.', 400);
 
+  if (status === 'ACTIVE' && target.status !== 'ACTIVE') {
+    const gate = await canActivateEmployee(id);
+    if (!gate.allowed && gate.reason === 'INCOMPLETE_DOCUMENTS') {
+      throw new AppError(
+        `Cannot activate employee. Incomplete onboarding requirements: ${gate.blockers
+          .map((b) => b.label)
+          .join(', ')}`,
+        400,
+        { blockers: gate.blockers }
+      );
+    }
+  }
+
+  const companyId = req.body.companyId ? Number(req.body.companyId) : target.company_id;
+  if (companyId && companyId !== target.company_id) {
+    await assertCompanyAccess(req.user, companyId);
+  }
+
   const [result] = await pool.query(
     `UPDATE employees SET
        full_name = ?, email = ?, recovery_email = ?, username = ?, phone = ?,
        date_of_birth = ?, role = ?, designation = ?, department_id = ?, manager_id = ?,
-       joining_date = ?, status = ?
+       joining_date = ?, company_id = ?, status = ?
      WHERE id = ?`,
     [req.body.fullName?.trim(), req.body.email?.trim() || null,
       req.body.recoveryEmail?.trim() || null, req.body.username?.trim() || null,
       req.body.phone?.trim() || null, req.body.dateOfBirth || null, role, designation,
-      department.id, managerId, req.body.joiningDate || null, status, id]
+      department.id, managerId, req.body.joiningDate || null, companyId, status, id]
   );
 
   if (!result.affectedRows) throw new AppError('Employee not found.', 404);
+
+  await writeAuditLog({
+    employeeId: req.user.id,
+    action: 'EMPLOYEE_UPDATED',
+    entityType: 'employees',
+    entityId: id,
+    oldValues: { role: target.role, status: target.status, company_id: target.company_id },
+    newValues: { role, status, company_id: companyId },
+    ipAddress: req.ip
+  });
+
   res.json({ success: true, message: 'Employee updated successfully.' });
 });
 
@@ -233,7 +412,8 @@ export const deleteEmployee = asyncHandler(
       `SELECT
          id,
          full_name,
-         role
+         role,
+         company_id
        FROM employees
        WHERE id = ?
        LIMIT 1`,
@@ -247,6 +427,10 @@ export const deleteEmployee = asyncHandler(
         'Employee not found.',
         404
       );
+    }
+
+    if (employee.company_id) {
+      await assertCompanyAccess(req.user, employee.company_id);
     }
 
     if (
@@ -264,6 +448,15 @@ export const deleteEmployee = asyncHandler(
        WHERE id = ?`,
       [employeeId]
     );
+
+    await writeAuditLog({
+      employeeId: req.user.id,
+      action: 'EMPLOYEE_DELETED',
+      entityType: 'employees',
+      entityId: employeeId,
+      oldValues: { full_name: employee.full_name, role: employee.role },
+      ipAddress: req.ip
+    });
 
     res.json({
       success: true,

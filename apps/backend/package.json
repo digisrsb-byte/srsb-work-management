@@ -13,7 +13,10 @@
     "activation:create": "node src/scripts/createActivationCode.js",
     "companies:list": "node src/scripts/manageCompanies.js list",
     "companies:suspend": "node src/scripts/manageCompanies.js suspend",
-    "companies:activate": "node src/scripts/manageCompanies.js activate"
+    "companies:activate": "node src/scripts/manageCompanies.js activate",
+    "test": "node --test \"test/**/*.test.js\"",
+    "check:env": "node scripts/check-environment.mjs",
+    "check:db-encryption": "node scripts/check-db-encryption.mjs"
   },
   "dependencies": {
     "bcryptjs": "2.4.3",
@@ -25,6 +28,7 @@
     "helmet": "8.0.0",
     "jsonwebtoken": "9.0.2",
     "morgan": "1.10.0",
+    "multer": "^1.4.5-lts.2",
     "mysql2": "3.14.0",
     "node-cron": "^4.6.0",
     "nodemailer": "^9.0.3"

@@ -18,6 +18,16 @@ import { validate } from '../middleware/validate.js';
 
 const router = Router();
 
+function isOnboardingRequest(body) {
+  return body?.onboarding === true || body?.onboarding === 'true';
+}
+
+// Onboarding-mode joiners get an auto-generated ID and set their own password via the activation link.
+function unlessOnboarding(value, { req }) {
+  if (isOnboardingRequest(req.body)) throw new Error('onboarding');
+  return true;
+}
+
 router.use(authenticate);
 
 
@@ -49,7 +59,7 @@ router.post(
     body('employeeId').optional({ checkFalsy: true }).trim(),
     body('username').optional({ checkFalsy: true }).trim().isLength({ min: 3 }),
     body('fullName').trim().isLength({ min: 2 }),
-    body('password').isLength({ min: 8 }),
+    body('password').if(unlessOnboarding).isLength({ min: 8 }),
     body('email').optional({ checkFalsy: true }).isEmail(),
     body('recoveryEmail').optional({ checkFalsy: true }).isEmail(),
     body('departmentId').isInt({ min: 1 }),

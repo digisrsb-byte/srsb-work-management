@@ -9,3 +9,26 @@ backups/*
 *-backup.jsx
 patch/
 *.zip
+apps/desktop/dist/
+apps/desktop/out/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Operating system files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor settings
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.temp
+# Private uploads
+apps/backend/uploads/

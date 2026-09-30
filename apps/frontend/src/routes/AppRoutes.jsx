@@ -8,7 +8,6 @@ import EmployeeDashboard from '../pages/employee/EmployeeDashboard.jsx';
 import Employees from '../pages/admin/Employees.jsx';
 import Clients from '../pages/admin/Clients.jsx';
 import Tasks from '../pages/Tasks.jsx';
-import PlaceholderPage from '../pages/PlaceholderPage.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import MyProfile from '../pages/employee/MyProfile.jsx';
 import Openings from '../pages/admin/Openings.jsx';
@@ -26,6 +25,20 @@ import Holidays from '../pages/admin/Holidays.jsx';
 import Invoices from '../pages/admin/Invoices.jsx';
 import ActivationCodes from '../pages/admin/ActivationCodes.jsx';
 import { isSrsbHeadAdmin } from '../utils/srsbHeadAdmin.js';
+import AccessManagement from '../pages/admin/AccessManagement.jsx';
+import OnboardingQueue from '../pages/OnboardingQueue.jsx';
+import OnboardingCaseDetail from '../pages/OnboardingCaseDetail.jsx';
+import PayrollPage from '../pages/admin/PayrollPage.jsx';
+import AssetsPage from '../pages/admin/AssetsPage.jsx';
+import AccessRequestsPage from '../pages/admin/AccessRequestsPage.jsx';
+import ExtendedReportsPage from '../pages/admin/ExtendedReportsPage.jsx';
+import MyPayslips from '../pages/employee/MyPayslips.jsx';
+import MyAssets from '../pages/employee/MyAssets.jsx';
+import NotificationsPage from '../pages/NotificationsPage.jsx';
+import MyOnboarding from '../pages/employee/MyOnboarding.jsx';
+import ActivateAccount from '../pages/ActivateAccount.jsx';
+import AttendanceCorrectionsPage from '../pages/admin/AttendanceCorrectionsPage.jsx';
+import EmployeePayslipsPage from '../pages/admin/EmployeePayslipsPage.jsx';
 
 const adminRoles = [
   'SUPER_ADMIN',
@@ -33,6 +46,13 @@ const adminRoles = [
   'HR',
   'MANAGER'
 ];
+const payslipStaffRoles = ['ADMIN', 'HR', 'MANAGER'];
+
+export function homePathFor(user) {
+  if (!user) return getUnauthenticatedHome();
+  if (user.onboardingOnly) return '/employee/onboarding';
+  return adminRoles.includes(user.role) ? '/admin' : '/employee';
+}
 
 function getUnauthenticatedHome() {
   // Existing companies (including SRSB) go to login.
@@ -42,26 +62,30 @@ function getUnauthenticatedHome() {
 
 export default function AppRoutes() {
   const { user } = useAuth();
+  const home = homePathFor(user);
 
-  const home = user
-    ? adminRoles.includes(user.role)
-      ? '/admin'
-      : '/employee'
-    : getUnauthenticatedHome();
+  // Joiners who are not activated yet can only complete their onboarding checklist.
+  if (user?.onboardingOnly) {
+    return (
+      <Routes>
+        <Route path="/activate-account" element={<ActivateAccount />} />
+        <Route element={<ProtectedRoute><AppLayout mode="employee" /></ProtectedRoute>}>
+          <Route path="/employee/onboarding" element={<MyOnboarding />} />
+          <Route path="/employee/notifications" element={<NotificationsPage />} />
+          <Route path="/employee/settings" element={<Settings />} />
+        </Route>
+        <Route path="*" element={<Navigate to={home} replace />} />
+      </Routes>
+    );
+  }
 
   return (
     <Routes>
       <Route
         path="/login"
-        element={
-          user ? (
-            <Navigate to={home} replace />
-          ) : (
-            <Login />
-          )
-        }
+        element={user ? <Navigate to={home} replace /> : <Login />}
       />
-
+      <Route path="/activate-account" element={<ActivateAccount />} />
       <Route
         path="/setup"
         element={
@@ -123,6 +147,10 @@ export default function AppRoutes() {
 />
 
         <Route path="/admin/attendance-corrections" element={<AttendanceCorrections />} />
+        <Route path="/admin/attendance-correction-workflow" element={<AttendanceCorrectionsPage />} />
+        <Route path="/admin/onboarding" element={<OnboardingQueue />} />
+        <Route path="/admin/onboarding/:caseId" element={<OnboardingCaseDetail />} />
+        <Route path="/admin/payroll" element={<PayrollPage />} />
 
         <Route
           path="/admin/requests"
@@ -169,14 +197,27 @@ export default function AppRoutes() {
         <Route path="/admin/my-attendance-corrections" element={<MyAttendanceCorrections />} />
 
         <Route
-          path="/admin/my-leave"
-          element={<MyLeave />}
+          path="/admin/employee-payslips"
+          element={
+            <ProtectedRoute roles={payslipStaffRoles}>
+              <EmployeePayslipsPage />
+            </ProtectedRoute>
+          }
         />
-
+        <Route path="/admin/assets" element={<AssetsPage />} />
+        <Route path="/admin/ops-reports" element={<ExtendedReportsPage />} />
+        <Route path="/admin/notifications" element={<NotificationsPage />} />
         <Route
-          path="/admin/my-profile"
-          element={<MyProfile />}
+          path="/admin/access"
+          element={
+            <ProtectedRoute roles={['SUPER_ADMIN']}>
+              <AccessManagement />
+            </ProtectedRoute>
+          }
         />
+        <Route path="/admin/access-requests" element={<AccessRequestsPage />} />
+        <Route path="/admin/my-leave" element={<MyLeave />} />
+        <Route path="/admin/my-profile" element={<MyProfile />} />
       </Route>
 
       <Route
@@ -197,6 +238,12 @@ export default function AppRoutes() {
         />
 
         <Route path="/employee/attendance-corrections" element={<MyAttendanceCorrections />} />
+        <Route path="/employee/onboarding" element={<MyOnboarding />} />
+        <Route path="/employee/onboarding/:caseId" element={<Navigate to="/employee/onboarding" replace />} />
+        <Route path="/employee/assets" element={<MyAssets />} />
+        <Route path="/employee/payslips" element={<MyPayslips />} />
+        <Route path="/employee/notifications" element={<NotificationsPage />} />
+        <Route path="/employee/access-requests" element={<AccessRequestsPage />} />
 
         <Route path="/employee/holidays" element={<Holidays />} />
 
@@ -228,10 +275,7 @@ export default function AppRoutes() {
 />
 </Route>
 
-      <Route
-        path="*"
-        element={<Navigate to={home} replace />}
-      />
+      <Route path="*" element={<Navigate to={home} replace />} />
     </Routes>
   );
 }

@@ -8,6 +8,10 @@ import {
   requestPasswordReset,
   resetPrivilegedPasswordWithOtp
 } from '../controllers/passwordResetController.js';
+import {
+  completeInvitation,
+  verifyInvitation
+} from '../controllers/invitationController.js';
 import { authenticate } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 
@@ -72,6 +76,27 @@ router.post(
     validate
   ],
   resetPrivilegedPasswordWithOtp
+);
+
+router.post(
+  '/invitations/verify',
+  [
+    body('token').isString().trim().isLength({ min: 20, max: 200 }).withMessage('This activation link is invalid.'),
+    body('companyCode').optional({ nullable: true }).trim().isLength({ max: 40 }).withMessage('Company code is too long.'),
+    validate
+  ],
+  verifyInvitation
+);
+
+router.post(
+  '/invitations/accept',
+  [
+    body('token').isString().trim().isLength({ min: 20, max: 200 }).withMessage('This activation link is invalid.'),
+    body('companyCode').optional({ nullable: true }).trim().isLength({ max: 40 }).withMessage('Company code is too long.'),
+    body('password').isString().isLength({ min: 8, max: 128 }).withMessage('Password must be 8 to 128 characters long.'),
+    validate
+  ],
+  completeInvitation
 );
 
 router.get('/me', authenticate, meController);

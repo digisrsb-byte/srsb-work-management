@@ -6,6 +6,7 @@ import {
   testDatabaseConnection
 } from './config/database.js';
 import { startAttendanceScheduler } from './utils/attendanceScheduler.js';
+import { startPayrollScheduler } from './utils/payrollScheduler.js';
 import { ensurePlatformSchema } from './migrations/ensurePlatformSchema.js';
 import app from './app.js';
 
@@ -89,6 +90,7 @@ async function start() {
         `Master DB: ${env.masterDbName} | Default tenant DB: ${env.dbName} | Tenants migrated: ${tenantCount || 1}`
       );
       startAttendanceScheduler();
+      startPayrollScheduler();
     });
   } catch (error) {
     console.error('Application startup failed:', error.message);

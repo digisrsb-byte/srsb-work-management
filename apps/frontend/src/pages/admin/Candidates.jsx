@@ -4,6 +4,15 @@ import api from '../../services/api.js';
 import useDebouncedValue from '../../hooks/useDebouncedValue.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { indiaDateValue } from '../../utils/indiaTime.js';
+import { Link } from 'react-router-dom';
+import {
+  CaseStatusBadge,
+  DemoBadge,
+  ONBOARDING_MANAGER_ROLES,
+  OnboardingResultMessage,
+  REVIEWER_ROLES,
+  onboardingResultTone
+} from '../onboarding/onboardingUi.jsx';
 
 const stages = ['SOURCED','SCREENING','SHORTLISTED','INTERVIEW','OFFERED','JOINED','REJECTED','WITHDRAWN'];
 const employmentStatuses = ['OFFERED','JOINED','ACTIVE','LEFT','NO_SHOW','TERMINATED'];
@@ -48,6 +57,9 @@ export default function Candidates() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [lastOnboarding, setLastOnboarding] = useState(null);
+  const canStartOnboarding = ONBOARDING_MANAGER_ROLES.includes(normalizedRole);
+  const canViewOnboarding = REVIEWER_ROLES.includes(normalizedRole);
   const debouncedSearch = useDebouncedValue(search, 300);
 
   const loadReference = useCallback(async () => {
@@ -68,6 +80,24 @@ export default function Candidates() {
       setLoading(false);
     }
   }, [debouncedSearch, stage, jobRole]);
+
+  async function startOnboarding(candidate) {
+    if (!window.confirm(`Start onboarding for ${candidate.full_name}?\n\nThis creates an inactive employee account, their onboarding document checklist, and emails an activation link.`)) return;
+    try {
+      setSaving(true); setError(''); setMessage(''); setLastOnboarding(null);
+      const response = await api.post('/onboarding/initiate', { candidateId: candidate.id });
+      setLastOnboarding({
+        ...response.data.data,
+        message: response.data.message,
+        tone: onboardingResultTone(response.data.data)
+      });
+      await loadCandidates();
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || 'Unable to start onboarding.');
+    } finally {
+      setSaving(false);
+    }
+  }
 
   useEffect(() => {
     Promise.all([loadReference(), loadCandidates()]).catch((requestError) => setError(requestError.response?.data?.message || 'Unable to load candidate information.'));
@@ -288,6 +318,15 @@ export default function Candidates() {
       </div>
       {message && <div className="message message-success">{message}</div>}
       {error && <div className="message message-error">{error}</div>}
+      {lastOnboarding && (
+        <OnboardingResultMessage
+          message={lastOnboarding.message}
+          tone={lastOnboarding.tone}
+          caseId={lastOnboarding.caseId}
+          canOpenCase={canViewOnboarding}
+          style={{ marginBottom: 16 }}
+        />
+      )}
 
       {showCandidateForm && <form className="card form-card" onSubmit={saveCandidate}>
         <div className="section-heading"><div><h2>{editingCandidate ? 'Edit Candidate' : 'Candidate Enrolment'}</h2><p className="page-subtitle">The employee who saves this profile is recorded automatically as Enrolled By.</p></div><button className="icon-btn" type="button" onClick={() => setShowCandidateForm(false)}><X size={20}/></button></div>
@@ -318,7 +357,7 @@ export default function Candidates() {
 
       <div className="candidate-list">
         {loading ? <div className="card">Loading candidates...</div> : candidates.length === 0 ? <div className="card empty-state">No candidates found.</div> : candidates.map((candidate) => <article className="card candidate-card" key={candidate.id}>
-          <div className="candidate-card-head"><div className="candidate-avatar"><UserRound size={22}/></div><div><h3>{candidate.full_name}</h3><p>{candidate.email || candidate.phone || 'No contact'} · Enrolled by {candidate.enrolled_by_name || 'SRSB'}</p></div><div className="row-actions"><button className="btn btn-secondary" type="button" onClick={() => selectCandidate(candidate)}>View Journey</button><button className="icon-btn" type="button" title="Edit candidate" onClick={() => openEdit(candidate)}><Pencil size={17}/></button>{canDelete && <button className="icon-btn danger" type="button" title="Delete candidate" disabled={saving} onClick={() => deleteCandidate(candidate)}><Trash2 size={17}/></button>}</div></div>
+          <div className="candidate-card-head"><div className="candidate-avatar"><UserRound size={22}/></div><div><h3>{candidate.full_name}{candidate.is_demo ? <> <DemoBadge /></> : null}</h3><p>{candidate.email || candidate.phone || 'No contact'} · Enrolled by {candidate.enrolled_by_name || 'SRSB'}</p></div><div className="row-actions">{candidate.onboarding_case_id ? (canViewOnboarding ? <Link className="btn btn-secondary" to={`/admin/onboarding/${candidate.onboarding_case_id}`}><CaseStatusBadge status={candidate.onboarding_case_status} /> Onboarding ({candidate.onboarding_employee_code})</Link> : <CaseStatusBadge status={candidate.onboarding_case_status} />) : canStartOnboarding && candidate.applications.some((application) => application.stage === 'JOINED') ? <button className="btn btn-secondary" type="button" disabled={saving} onClick={() => startOnboarding(candidate)}>Start onboarding</button> : null}<button className="btn btn-secondary" type="button" onClick={() => selectCandidate(candidate)}>View Journey</button><button className="icon-btn" type="button" title="Edit candidate" onClick={() => openEdit(candidate)}><Pencil size={17}/></button>{canDelete && <button className="icon-btn danger" type="button" title="Delete candidate" disabled={saving} onClick={() => deleteCandidate(candidate)}><Trash2 size={17}/></button>}</div></div>
           <div className="candidate-info-grid"><span><strong>Source:</strong> {label(candidate.candidate_source)}</span><span><strong>Enrolled:</strong> {formatDate(candidate.enrollment_date)}</span><span><strong>Sourcing records:</strong> {candidate.applications.length}</span><span><strong>Placements:</strong> {candidate.history_count || 0}</span><span><strong>Latest company:</strong> {candidate.latest_company || 'Not placed'}</span><span><strong>Latest status:</strong> {candidate.latest_employment_status ? label(candidate.latest_employment_status) : '—'}</span></div>
           {candidate.applications.length > 0 && <div className="candidate-stage-strip">{candidate.applications.map((application) => <div key={application.application_id}><Building2 size={15}/><span>{application.company_name} — {application.job_role}</span><select value={application.stage || 'SOURCED'} onChange={(event) => updateStage(candidate, application, event.target.value)}>{stages.map((item) => <option key={item} value={item}>{label(item)}</option>)}</select>{application.stage === 'JOINED' && !application.application_placement_id && <button className="btn btn-primary btn-small" type="button" onClick={() => startPlacementForApplication(candidate, application)}>Complete Placement</button>}</div>)}</div>}
         </article>)}

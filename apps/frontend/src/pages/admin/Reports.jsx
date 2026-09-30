@@ -3,8 +3,12 @@ import {
   useState
 } from 'react';
 import api from '../../services/api.js';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import {
+  exportReportCsv,
+  exportReportPdf,
+  exportReportXlsx
+} from '../../services/reportExport.js';
+import { buildCompanyReport } from './reports/reportDefinitions.js';
 
 function formatDate(date) {
   if (!date) return '-';
@@ -69,6 +73,7 @@ export default function Reports() {
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [exporting, setExporting] = useState('');
 
   function applyPeriod(value) {
     setPeriod(value);
@@ -141,431 +146,23 @@ export default function Reports() {
     }
   }
 
-  function downloadExcel() {
+  async function exportReport(format) {
     if (!report) return;
 
-    const rows = [
-      ['SRSB Workforce Solutions Company Report'],
-      ['Start Date', report.reportPeriod.startDate],
-      ['End Date', report.reportPeriod.endDate],
-      ['Generated At', report.generatedAt],
-      [],
-      ['Category', 'Metric', 'Value'],
-      [
-        'Employees',
-        'Total Employees',
-        report.summary.employees.total
-      ],
-      [
-        'Employees',
-        'Active Employees',
-        report.summary.employees.active
-      ],
-      [
-        'Employees',
-        'Joined During Period',
-        report.summary.employees.joinedDuringPeriod
-      ],
-      [
-        'Attendance',
-        'Present',
-        report.summary.attendance.present
-      ],
-      [
-        'Attendance',
-        'Absent',
-        report.summary.attendance.absent
-      ],
-      [
-        'Attendance',
-        'Half Day',
-        report.summary.attendance.halfDay
-      ],
-      [
-        'Leave',
-        'Total Requests',
-        report.summary.leaveRequests.total
-      ],
-      [
-        'Leave',
-        'Approved',
-        report.summary.leaveRequests.approved
-      ],
-      [
-        'Clients',
-        'Total Clients',
-        report.summary.clients.total
-      ],
-      [
-        'Clients',
-        'Added During Period',
-        report.summary.clients.addedDuringPeriod
-      ],
-      [
-        'Requirements',
-        'Total Requirements',
-        report.summary.openings.totalRequirements
-      ],
-      [
-        'Requirements',
-        'Total Positions',
-        report.summary.openings.totalPositions
-      ],
-      [
-        'Candidates',
-        'Candidates Added',
-        report.summary.candidates.added
-      ],
-      [
-        'Candidates',
-        'Applications',
-        report.summary.candidates.applications
-      ],
-      [
-        'Candidates',
-        'Joined',
-        report.summary.candidates.joined
-      ],
-      [
-        'Tasks',
-        'Total Tasks',
-        report.summary.tasks.total
-      ],
-      [
-        'Tasks',
-        'Completed Tasks',
-        report.summary.tasks.completed
-      ]
-    ];
-
-    if (report.finance) {
-      rows.push(
-        [],
-        ['Finance', 'Invoiced Amount', report.finance.invoices.invoicedAmount],
-        ['Finance', 'Paid Amount', report.finance.invoices.paidAmount],
-        [
-          'Finance',
-          'Outstanding Amount',
-          report.finance.invoices.outstandingAmount
-        ],
-        ['Finance', 'Expenses', report.finance.expenses.amount],
-        ['Finance', 'Net Result', report.finance.netResult]
-      );
+    try {
+      setExporting(format);
+      setError('');
+      const definition = buildCompanyReport(report, { period });
+      if (format === 'PDF') await exportReportPdf(definition);
+      else if (format === 'XLSX') exportReportXlsx(definition);
+      else exportReportCsv(definition);
+    } catch (exportError) {
+      console.error(exportError);
+      setError('Unable to create the export file. Please try again.');
+    } finally {
+      setExporting('');
     }
-
-    rows.push(
-      [],
-      ['Employee ID', 'Employee Name', 'Present', 'Absent', 'Half Day', 'Leave', 'Work Minutes']
-    );
-
-    report.attendanceByEmployee.forEach((employee) => {
-      rows.push([
-        employee.employee_id,
-        employee.full_name,
-        employee.present_days,
-        employee.absent_days,
-        employee.half_days,
-        employee.leave_days,
-        employee.total_work_minutes
-      ]);
-    });
-
-    rows.push(
-      [],
-      [
-        'Client',
-        'Job Role',
-        'Location',
-        'Total Positions',
-        'Filled',
-        'Remaining',
-        'Status',
-        'Handled By'
-      ]
-    );
-
-    report.openings.forEach((opening) => {
-      rows.push([
-        opening.company_name,
-        opening.title,
-        opening.location,
-        opening.openings_count,
-        opening.filled_positions,
-        opening.remaining_positions,
-        opening.status,
-        opening.assigned_recruiter_name || 'Not Assigned'
-      ]);
-    });
-
-    const csv = rows
-      .map((row) =>
-        row
-          .map((cell) => {
-            const value = String(cell ?? '');
-            return `"${value.replaceAll('"', '""')}"`;
-          })
-          .join(',')
-      )
-      .join('\n');
-
-    const blob = new Blob([`\uFEFF${csv}`], {
-      type: 'text/csv;charset=utf-8;'
-    });
-
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-
-    link.href = url;
-    link.download = `SRSB-Company-Report-${startDate}-to-${endDate}.csv`;
-
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    URL.revokeObjectURL(url);
   }
-
- function downloadPDF() {
-  if (!report) return;
-
-  const pdf = new jsPDF({
-    orientation: 'landscape',
-    unit: 'mm',
-    format: 'a4'
-  });
-
-  const pageWidth = pdf.internal.pageSize.getWidth();
-
-  pdf.setFontSize(18);
-  pdf.text(
-    'SRSB Workforce Solutions Pvt. Ltd.',
-    pageWidth / 2,
-    15,
-    { align: 'center' }
-  );
-
-  pdf.setFontSize(14);
-  pdf.text(
-    'Company Performance Report',
-    pageWidth / 2,
-    23,
-    { align: 'center' }
-  );
-
-  pdf.setFontSize(10);
-  pdf.text(
-    `${formatDate(report.reportPeriod.startDate)} to ${formatDate(
-      report.reportPeriod.endDate
-    )}`,
-    pageWidth / 2,
-    30,
-    { align: 'center' }
-  );
-
-  const overviewRows = [
-    ['Total Employees', report.summary.employees.total],
-    ['Active Employees', report.summary.employees.active],
-    [
-      'Employees Joined',
-      report.summary.employees.joinedDuringPeriod
-    ],
-    ['Total Clients', report.summary.clients.total],
-    [
-      'Clients Added',
-      report.summary.clients.addedDuringPeriod
-    ],
-    [
-      'Total Requirements',
-      report.summary.openings.totalRequirements
-    ],
-    [
-      'Total Positions',
-      report.summary.openings.totalPositions
-    ],
-    ['Active Requirements', report.summary.openings.active],
-    ['Candidates Added', report.summary.candidates.added],
-    ['Candidates Joined', report.summary.candidates.joined],
-    ['Total Tasks', report.summary.tasks.total],
-    ['Completed Tasks', report.summary.tasks.completed],
-    ['Present Records', report.summary.attendance.present],
-    ['Absent Records', report.summary.attendance.absent]
-  ];
-
-  autoTable(pdf, {
-    startY: 36,
-    head: [['Company Metric', 'Value']],
-    body: overviewRows,
-    theme: 'grid',
-    styles: {
-      fontSize: 9,
-      cellPadding: 3
-    },
-    headStyles: {
-      fillColor: [15, 139, 141]
-    },
-    margin: {
-      left: 14,
-      right: 14
-    }
-  });
-
-  let nextY = pdf.lastAutoTable.finalY + 10;
-
-  if (report.finance) {
-    const financeRows = [
-      [
-        'Total Invoiced',
-        formatCurrency(
-          report.finance.invoices.invoicedAmount
-        )
-      ],
-      [
-        'Paid Amount',
-        formatCurrency(report.finance.invoices.paidAmount)
-      ],
-      [
-        'Outstanding Amount',
-        formatCurrency(
-          report.finance.invoices.outstandingAmount
-        )
-      ],
-      [
-        'Total Expenses',
-        formatCurrency(report.finance.expenses.amount)
-      ],
-      [
-        'Net Result',
-        formatCurrency(report.finance.netResult)
-      ]
-    ];
-
-    autoTable(pdf, {
-      startY: nextY,
-      head: [['Finance Metric', 'Amount']],
-      body: financeRows,
-      theme: 'grid',
-      styles: {
-        fontSize: 9,
-        cellPadding: 3
-      },
-      headStyles: {
-        fillColor: [15, 139, 141]
-      },
-      margin: {
-        left: 14,
-        right: 14
-      }
-    });
-
-    nextY = pdf.lastAutoTable.finalY + 10;
-  }
-
-  const attendanceRows = report.attendanceByEmployee.map(
-    (employee) => [
-      employee.employee_id,
-      employee.full_name,
-      employee.present_days,
-      employee.absent_days,
-      employee.half_days,
-      employee.leave_days,
-      (
-        Number(employee.total_work_minutes || 0) / 60
-      ).toFixed(1)
-    ]
-  );
-
-  autoTable(pdf, {
-    startY: nextY,
-    head: [
-      [
-        'Employee ID',
-        'Employee Name',
-        'Present',
-        'Absent',
-        'Half Day',
-        'Leave',
-        'Work Hours'
-      ]
-    ],
-    body: attendanceRows,
-    theme: 'grid',
-    styles: {
-      fontSize: 8,
-      cellPadding: 2.5
-    },
-    headStyles: {
-      fillColor: [15, 139, 141]
-    },
-    margin: {
-      left: 14,
-      right: 14
-    }
-  });
-
-  const openingRows = report.openings.map((opening) => [
-    opening.company_name,
-    opening.title,
-    opening.location || '-',
-    opening.openings_count,
-    opening.filled_positions,
-    opening.remaining_positions,
-    opening.status,
-    opening.assigned_recruiter_name || 'Not Assigned'
-  ]);
-
-  autoTable(pdf, {
-    startY: pdf.lastAutoTable.finalY + 10,
-    head: [
-      [
-        'Client',
-        'Job Role',
-        'Location',
-        'Total',
-        'Filled',
-        'Remaining',
-        'Status',
-        'Handled By'
-      ]
-    ],
-    body: openingRows,
-    theme: 'grid',
-    styles: {
-      fontSize: 8,
-      cellPadding: 2.5
-    },
-    headStyles: {
-      fillColor: [15, 139, 141]
-    },
-    margin: {
-      left: 14,
-      right: 14
-    }
-  });
-
-  const totalPages = pdf.internal.getNumberOfPages();
-
-  for (let page = 1; page <= totalPages; page += 1) {
-    pdf.setPage(page);
-    pdf.setFontSize(8);
-
-    pdf.text(
-      `Generated on ${formatDate(report.generatedAt)}`,
-      14,
-      pdf.internal.pageSize.getHeight() - 7
-    );
-
-    pdf.text(
-      `Page ${page} of ${totalPages}`,
-      pageWidth - 14,
-      pdf.internal.pageSize.getHeight() - 7,
-      { align: 'right' }
-    );
-  }
-
-  pdf.save(
-    `SRSB-Company-Report-${startDate}-to-${endDate}.pdf`
-  );
-}
 
   return (
     <div className="reports-page">
@@ -661,17 +258,27 @@ export default function Reports() {
 
             <div className="report-download-actions">
               <button
-                className="excel-button"
-                onClick={downloadExcel}
+                className="pdf-button"
+                onClick={() => exportReport('PDF')}
+                disabled={Boolean(exporting)}
               >
-                Download Excel
+                {exporting === 'PDF' ? 'Preparing…' : 'Export PDF'}
               </button>
 
               <button
-                className="pdf-button"
-                onClick={downloadPDF}
+                className="excel-button"
+                onClick={() => exportReport('XLSX')}
+                disabled={Boolean(exporting)}
               >
-                Download PDF
+                {exporting === 'XLSX' ? 'Preparing…' : 'Export Excel (.xlsx)'}
+              </button>
+
+              <button
+                className="csv-button"
+                onClick={() => exportReport('CSV')}
+                disabled={Boolean(exporting)}
+              >
+                {exporting === 'CSV' ? 'Preparing…' : 'Export CSV'}
               </button>
             </div>
           </div>
@@ -1031,12 +638,30 @@ export default function Reports() {
 
         .report-download-actions {
           display: flex;
+          flex-wrap: wrap;
           gap: 10px;
         }
 
         .excel-button,
-        .pdf-button {
+        .pdf-button,
+        .csv-button {
           padding: 11px 16px;
+          border: 0;
+          border-radius: 10px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+
+        .excel-button:disabled,
+        .pdf-button:disabled,
+        .csv-button:disabled {
+          opacity: 0.65;
+          cursor: not-allowed;
+        }
+
+        .csv-button {
+          background: #f1f5f9;
+          color: #334155;
         }
 
         .excel-button {
@@ -1165,7 +790,8 @@ export default function Reports() {
           }
 
           .excel-button,
-          .pdf-button {
+          .pdf-button,
+          .csv-button {
             flex: 1;
           }
         }

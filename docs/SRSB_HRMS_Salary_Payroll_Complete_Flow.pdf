@@ -1,0 +1,450 @@
+SRSB HRMS
+
+Complete Salary & Payroll Flow Analysis
+
+Technical + Business documentation (code-verified, read-only analysis)
+
+Generated: 26/9/2026, 5:45:24 pm
+Source: Existing SRSB HRMS codebase (frontend, backend, migrations, RBAC). No assumptions of unimplemented features.
+Purpose: Reference document before further implementation. Accuracy prioritized over completeness of wish-list features.
+
+1. Executive Summary
+
+Salary & Payroll is a company-scoped, CTC-driven, backend-calculated pipeline:
+ • Employee is created without salary.
+ • Admin/HR/SA enter Annual CTC; engine builds components from salary_configurations.
+ • Employee punches daily into attendance.
+ • Admin/HR create a payroll run, then Calculate (live attendance + active CTC).
+ • Status: DRAFT !’ SUBMITTED !’ APPROVED !’ LOCKED !’ PAID.
+ • On Mark Paid, payslip_records are created; employee downloads via My Payslips (client-side jsPDF).
+
+Employee portal does NOT show live CTC/structure — only generated payslips.
+
+2. Salary & Payroll Business Flow
+
+SUPER ADMIN / ADMIN / HR
+       !’ C r e a t e e m p l o y e e ( e m p l o y e e s )
+       !’ C o m p a n y s a l a r y c o n f i g u r a t i o n ( s a l a r y _ c o n f i g u r a t i o n s )
+       !’ E n t e r e m p l o y e e A n n u a l C T C ( e m p l o y e e _ s a l a r y _ s t r u c t u r e s + s a
+
+EMPLOYEE
+       !’ P u n c h I n / P u n c h O u t ( a t t e n d a n c e )
+       !’ O p t i o n a l : A t t e n d a n c e c o r r e c t i o n r e q u e s t
+       !’ O p t i o n a l : L e a v e r e q u e s t ( l e a v e _ r e q u e s t s — N O T w r i t t e n i n t o
+
+MANAGER / ADMIN / HR / SUPER ADMIN     correction (updates attendance)
+       !’ A p p r o v e / r e j e c t  leave (leave_requests only)
+       !’ A p p r o v e / r e j e c t
+
+ADMIN / HR (/ SUPER ADMIN)             p e r i o d !’  C a l c u l a t e !’  Submit
+       !’ C r e a t e p a y r o l l
+
+SUPER ADMIN / ADMIN
+       !’ A p p r o v e !’ L o c k !’ M a r k P a i d / G e n e r a t e p a y s l i p s
+
+EMPLOYEE (+ ADMIN/HR/MANAGER scoped list)              Actual answer
+       !’ V i e w / d o w n l o a d p a y s l i p      SUPER_ADMIN, ADMIN, HR (POST /employees)
+                                                       SUPER_ADMIN, ADMIN, HR (PUT /payroll/config)
+ Question                                              SUPER_ADMIN, ADMIN, HR (PUT /payroll/employee/:id/setup)
+ Who creates employee?                                 Route allows MANAGER; salary:view seed missing !’ likely 403
+ Who configures company salary %?
+ Who configures employee CTC?
+ Who views salary setup?
+
+SRSB HRMS — Salary & Payroll Complete Flow | Page 1 of 9
+Who edits salary?                                               SUPER_ADMIN, ADMIN, HR
+Who manages attendance list?                                    SUPER_ADMIN, ADMIN, HR, MANAGER
+Who approves correction?                                        SUPER_ADMIN, ADMIN, HR, MANAGER
+Who calculates payroll?                                         SUPER_ADMIN, ADMIN, HR
+Who submits payroll?                                            SUPER_ADMIN, ADMIN, HR
+Who approves/locks/pays?                                        SUPER_ADMIN, ADMIN only
+Who reopens payroll?                                            SUPER_ADMIN only
+Who downloads payslip?                                          Owner + ADMIN/HR/MANAGER list; SA page hidden
+
+3. Super Admin Role
+
+ • Salary Configuration: Yes (permission always true for SA)
+ • Employee CTC, payroll full lifecycle including reopen: Yes
+ • Employee Payslips nav page: Hidden in AppLayout
+ • Open payslip by ID: Allowed
+ • My Employee Portal shortcut: No (non-SA only)
+Files: payrollRoutes.js, AppLayout.jsx, permissionService.js
+
+4. Admin Role
+
+ • Create/update employees, salary config, CTC: Yes
+ • Payroll create/calculate/submit/approve/lock/paid: Yes
+ • Reopen: No
+ • Attendance, corrections, override: Yes
+ • Employee Payslips + My Employee Portal: Yes
+
+5. HR Role
+
+ • Employees, salary config, CTC: Yes
+ • Payroll create/calculate/submit: Yes
+ • Approve/Lock/Mark Paid: Route blocked (SA/ADMIN only)
+ • Corrections + override + Employee Payslips + Employee Portal: Yes
+
+6. Manager Role
+
+ • List employees: Yes; Create employee: No
+ • Salary config update: No; salary setup GET: permission gap risk
+ • Payroll runs/dashboard: View only
+ • Calculate/submit/approve: No
+ • Attendance + correction approval: Yes; Manual override: No
+ • Employee Payslips + My Employee Portal: Yes
+Seed: 007_salary_payroll_assets_access.sql — MANAGER payroll view only, no salary row.
+
+7. Employee Role
+
+ • Punch in/out, my attendance, correction request, leave: Yes
+ • Live My Salary / CTC screen: NOT IMPLEMENTED
+ • My Payslips (own only): Yes
+Nav: employeeNavigation in navigation.js
+
+                              SRSSRBSHBRHMRSM—S —SaSlaarlyar&y P&aPyaroylrloClloCmopmleptleetFeloFwlow| P|aPgaeg2e o2f 9
+8. Employee Creation !’ Salary Flow
+
+ E m p l o y e e s f o r m !’ P O S T / e m p l o y e e s !’ e m p l o y e e C o n t r o l l e r . c r e a t e E m
+!’ I N S E R T e m p l o y e e s ( N O c t c , N O s a l a r y t a b l e s )
+!’ o p t i o n a l u s e r _ c o m p a n y _ s c o p e s f o r A D M I N / H R / M A N A G E R
+
+Payroll Calculate selects ACTIVE employees of run.company_id excluding SUPER_ADMIN. Missing structure !’ item notes
+"Salary setup missing…", net_pay null. Salary is a separate step on /admin/payroll.
+
+9. CTC !’ Salary Components
+
+Input: Annual CTC only. Monthly CTC = annual / 12. Engine: calculateSalaryStructure in salaryCalculationService.js.
+
+Component           Formula                                  Source
+
+Monthly CTC         annualCtc / 12                           computed
+
+Basic               monthlyCtc × basic_percent/100           config (default 40)
+
+DA                  basic × da_percent_of_basic/100          config (default 0)
+
+HRA                 basic × hra_percent_of_basic/100         config (default 50)
+
+Employer PF         min(Basic+DA, ceiling) × er%             config
+
+Gratuity            if enabled: basic × gratuity%            config + flags
+
+Special Allowance   monthlyCtc " basic"da"hra"erPF"gratuity  residual
+
+Bonus               optional % of basic by type              config + flags
+
+Attendance Bonus    flat if attendance% "e min               config + flags
+
+Conveyance / Other  NOT IMPLEMENTED                          —
+
+Gross (month)       payable earnings + bonuses               engine
+
+Net                 Gross " Emp PF " PT " ESI " other        engine
+
+APIs: POST /payroll/calculate-preview, PUT /payroll/employee/:id/setup. Display: PayrollPage Breakdown. Employee portal: not
+until payslip.
+
+10. Salary Configuration !’ Payroll Connection
+
+CONNECTED: salary_configurations !’ getSalaryConfiguration !’ calculateSalaryStructure / calculateEmployeeSalary !’ CTC save
++ payroll Calculate.
+
+ • Used: basic/da/hra %, PF, PT, optional ESI, bonus, attendance bonus, gratuity, payroll_day_basis, company_address
+ • statutory_rules can merge PT; ESI is config-driven
+
+11. Punch In !’ Punch Out Flow
+
+MyAttendance.jsx
+       !’ P O S T / a t t e n d a n c e / p u n c h - i n !’ p u n c h _ i n = N O W ( ) , s t a t u s = P R E S E N T
+       !’ P O S T / a t t e n d a n c e / p u n c h - o u t !’ p u n c h _ o u t = N O W ( ) ,
+         total_work_minutes=TIMESTAMPDIFF(MINUTE, punch_in, NOW()),
+         status by minutes (see Daily Status)
+
+Table: attendance (database/schema.sql)
+
+12. Working Hours Calculation
+
+Actual: TIMESTAMPDIFF(MINUTE, punch_in, punch_out) !’ total_work_minutes.
+
+                    SRSSRBSHBRHMRSM—S —SaSlaarlyar&y P&aPyaroylrloClloCmopmleptleetFeloFwlow| P|aPgaeg3e o3f 9
+ Feature                                      Status
+ Break deduction                              NOT IMPLEMENTED
+ Grace / late / early leave                   NOT IMPLEMENTED
+ Overtime                                     NOT IMPLEMENTED
+ Min hours Present/Half/Absent                Yes via punch-out CASE
+ Hours !’ salary directly                     No — via status !’ paid/LOP !’ pro-rata
+
+13. Daily Attendance Status
+
+Status                          How determined                      Payroll effect
+PRESENT                         Punch-in; punch-out "e480 min       +1 paid day
+HALF_DAY                        Punch-out 180–479 min               +0.5 paid
+ABSENT                          Punch-out <180 min                  +1 LOP
+LEAVE                           Enum; leave approve does NOT write  Would be paid if present
+                                attendance
+WEEK_OFF                        Enum; no writer found               Would be paid
+HOLIDAY                         Enum; no writer found               Would be paid
+MISSING_PUNCH                   Enum; no auto-writer found          +1 LOP
+Unmarked (no row)               No punch                            Credited as paid (not LOP)
+
+File: attendanceController.js punchOut CASE.
+
+14. Monthly Attendance Calculation
+
+Function: getAttendanceSummary(employeeId, year, month) — queries attendance for month, groups by status. No separate
+monthly attendance table.
+
+15. Attendance !’ Paid Days !’ LOP
+
+lopDays = ABSENT + MISSING_PUNCH                                                                                                     HOLIDAY
+ p a i d D a y s "H P R E S E N T + 0 . 5 * H A L F _ D A Y + L E A V E + W E E K _ O F F +                                          = 0
+ I f n o a t t e n d a n c e r o w s !’ p a i d D a y s = f u l l b a s i s , l o p D a y s
+ I f F I X E D _ 3 0 _ D A Y S !’ p a i d D a y s = m a x ( 0 , 3 0 " l o p D a y s )
+
+coreGross = Basic+DA+HRA+SpecialAllowance                   otherDeductions
+payableCore = (coreGross / basisDays) × paidDays
+components scaled by attendanceRatio = paidDays/basisDays
+grossSalary = payable earnings + bonuses
+
+ netPay = gross " PF " PT " ESI "
+
+other_deductions on run item stores LOP amount (not loan).
+
+16. Attendance Correction Flow
+
+ E m p l o y e e !’ P O S T / a t t e n d a n c e / c o r r e c t i o n s !’                                                PENDING
+ R e v i e w e r !’ P O S T . . . / a p p r o v e | r e j e c t
+
+   Approve: upsertAttendanceForDate (UPDATE/INSERT attendance)
+   Reject: status REJECTED; attendance unchanged
+
+review_comment error (root cause)
+ • DB column: reviewer_comment (schema.sql)
+ • Historical bug: controller used review_comment !’ unknown column
+
+                                SRSSRBSHBRHMRSM—S —SaSlaarlyar&y P&aPyaroylrloClloCmopmleptleetFeloFwlow| P|aPgaeg4e o4f 9
+ • Current code: uses reviewer_comment
+ • API: POST /attendance/corrections/:id/approve (and reject)
+If deployed build still has old SQL, approve fails until that code is deployed.
+
+17. Attendance Correction !’ Payroll
+
+Approve updates attendance in place. Next Calculate reads getAttendanceSummary !’ uses corrected data. Locked/calculated
+items are not auto-refreshed; recalculate while DRAFT/SUBMITTED. Rejected corrections ignored.
+
+18. Salary Calculation Layers
+
+ Layer                                Location
+ Engine                               salaryCalculationService.calculateSalaryStructure
+ + attendance                         calculateEmployeeSalary !’ getAttendanceSummary
+ Payroll item                         payrollService.calculateEmployeePayrollItem
+ Persist                              payrollController.calculatePayrollRun !’ payroll_run_items
+
+19. PF Calculation
+
+pfBase = min(Basic + DA, pf_wage_ceiling) // default 15000
+employeePf = pfBase × (employee_pf_percent/100) // default 12
+employerPf = pfBase × (employer_pf_percent/100) // default 13
+
+Matches expected 12%/13% with ¹15k ceiling (15000×0.12=1800). Not hardcoded 1800/1950. Payroll month uses
+attendance-scaled Basic+DA.
+
+20. ESI
+
+IMPLEMENTED (optional) via migration 012_optional_esi_configuration.sql. Default enable_esi=0 !’ ¹0. If enabled: gross ×
+configured %. Above esi_wage_ceiling !’ ¹0. Stored on payroll_run_items.esi_*. UI: ESI card on PayrollPage.jsx.
+
+21. Payroll Run Stages
+
+Stage                    Who          API                                                                            DB Status
+Create                   SA/ADMIN/HR  POST /payroll/runs                                                             DRAFT
+Calculate / Import Att.  SA/ADMIN/HR  POST .../calculate                                                             unchanged; rebuilds items
+Submit                   SA/ADMIN/HR  POST .../submit                                                                SUBMITTED
+Approve                  SA/ADMIN     POST .../approve                                                               APPROVED
+Lock                     SA/ADMIN     POST .../lock                                                                  LOCKED
+Mark Paid + payslips     SA/ADMIN     POST .../payment                                                               PAID + payslip_records
+Reopen                   SA only      POST .../reopen                                                                DRAFT
+
+No DB status CALCULATED. Dashboard: GET /payroll/dashboard. Approve blocks missing structure / null net.
+
+22. Payroll Approval
+
+transitionPayroll + permission payroll:approve for APPROVED/LOCKED. HR UI may show Approve; API rejects non-SA/ADMIN.
+
+23. Payslip Generation
+
+                         SRSSRBSHBRHMRSM—S —SaSlaarlyar&y P&aPyaroylrloClloCmopmleptleetFeloFwlow| P|aPgaeg5e o5f 9
+ • On Mark Paid: insert payslip_records (PS-{runId}-{employeeId}-{timestamp})
+ • Notify PAYSLIP_GENERATED; amounts from payroll_run_items snapshot
+ • PDF: frontend jsPDF (MyPayslips.jsx / EmployeePayslipsPage.jsx)
+ • Email payslip: NOT IMPLEMENTED
+
+24. Role-Based Payslip Access
+
+ Role                                         Access
+ EMPLOYEE                                     Own only
+ ADMIN/HR/MANAGER                             Scoped company list GET /payroll/payslips
+ SUPER_ADMIN                                  List page blocked in UI; by-ID allowed
+
+25. Database Structure
+
+companies        % % %,% %        attendance
+ employees              %%%
+                        %%%
+                        %%%       attendance_correction_requests
+                        %%%
+                        %%%       leave_requests   (not auto-synced to attendance
+
+                                  employee_salary_structures %% salary_component
+
+                                  user_company_scopes
+
+                                  payslip_records
+
+salary_configurations (company)                                                payslip_records
+statutory_rules (optional PT merge)
+
+ payroll_runs %% payroll_run_items %%
+                                               %%% payroll_adjustments
+
+role_permissions + audit logs
+
+26. Key API Map
+
+ Function                                     Endpoint
+ Create employee                              POST /employees
+ Salary config                                GET/PUT /payroll/config
+ Preview CTC                                  POST /payroll/calculate-preview
+ Employee setup                               GET/PUT /payroll/employee/:id/setup
+ Dashboard                                    GET /payroll/dashboard
+ Runs                                         GET/POST /payroll/runs
+ Calculate                                    POST /payroll/runs/:id/calculate
+ Submit/Approve/Lock/Paid/Reopen              POST .../submit|approve|lock|payment|reopen
+ My payslips                                  GET /payroll/me/payslips
+ Staff payslips                               GET /payroll/payslips
+ Payslip detail                               GET /payroll/payslips/:id
+ Punch                                        POST /attendance/punch-in|out
+ Corrections                                  /attendance/corrections…
+ Leave                                        /leave…
+
+27. Frontend Structure
+
+                                  SSRRSSBBHHRRMMSS——SSaalalaryry&&PaPyaryorlloClloCmopmlepteleFteloFwlo| wPa| gPea6geof69
+Screen                       Route                                              Component
+Salary & Payroll             /admin/payroll                                     PayrollPage.jsx
+Employee Payslips            /admin/employee-payslips                           EmployeePayslipsPage.jsx
+Corrections                  /admin/attendance-corrections                      AttendanceCorrectionsPage.jsx
+Attendance admin             /admin/attendance                                  AttendanceManagement.jsx
+My Attendance                /employee/attendance                               MyAttendance.jsx
+My Payslips                  /employee/payslips                                 MyPayslips.jsx
+
+No separate SA/HR/Manager payroll apps — shared admin layout.
+
+28. Complete Technical Flow
+
+P u n c h I n !’ M y A t t e n d a n c e !’ P O S T / a t t e n d a n c e / p u n c h - i n !’                       attendan
+P u n c h O u t !’ m i n u t e s + P R E S E N T | H A L F _ D A Y | A B S E N T
+C o r r e c t i o n a p p r o v e !’ u p s e r t A t t e n d a n c e F o r D a t e
+A d m i n C a l c u l a t e !’ P O S T / p a y r o l l / r u n s / : i d / c a l c u l a t e
+
+     !’ c a l c u l a t e E m p l o y e e P a y r o l l I t e m
+     !’ g e t A c t i v e S a l a r y S t r u c t u r e + g e t S a l a r y C o n f i g u r a t i o n
+     !’ g e t A t t e n d a n c e S u m m a r y + c a l c u l a t e S a l a r y S t r u c t u r e
+     !’ I N S E R T p a y r o l l _ r u n _ i t e m s
+S u b m i t !’ A p p r o v e !’ L o c k !’ p a y m e n t !’ p a y s l i p _ r e c o r d s
+E m p l o y e e !’ M y P a y s l i p s !’ G E T p a y s l i p !’ j s P D F d o w n l o a d
+
+29. Complete Business Flow
+
+1) HR/Admin creates employee. 2) Sets Annual CTC (and optional company %). 3) Employee marks attendance. 4) Forgotten
+punch !’ correction !’ approve !’ attendance fixed. 5) HR/Admin Calculate payroll. 6) Admin/SA approve, lock, mark paid. 7)
+Employee downloads payslip. Leave approval alone does not mark attendance LEAVE for payroll.
+
+30. Current Working Features
+
+ • CTC auto structure + company config wired to calc; PF ceiling; optional ESI
+ • Punch + hour-based Present/Half/Absent; correction !’ next Calculate
+ • Payroll status machine + payslip records; client PDF
+ • RBAC routes + role_permissions + company scopes; audit on key actions
+
+31. Current Missing Features
+
+ Item                                     Status
+ Employee live salary view                NOT IMPLEMENTED
+ Leave !’ attendance LEAVE rows           NOT CONNECTED
+ Auto WEEK_OFF / HOLIDAY / MISSING_PUNCH  NOT FOUND
+ Conveyance, TDS, loan                    NOT IMPLEMENTED
+ Server PDF / email payslip               NOT IMPLEMENTED
+ CALCULATED status                        NOT (stays DRAFT/SUBMITTED)
+ Break/OT/grace salary rules              NOT IMPLEMENTED
+
+32. Current Bugs / Fragile Points
+
+                            SSRRSSBBHHRRMMSS——SSaalalaryry&&PaPyaryorlloClloCmopmlepteleFteloFwlo| wPa| gPea7geof79
+ Issue                                Nature
+ review_comment vs reviewer_comment   Was broken; repo now uses reviewer_comment
+ HR Approve button vs API             UI may offer; API forbids
+ MANAGER GET salary setup             Route allows; salary:view seed missing
+ Unmarked days = paid                 Soft attendance !’ low LOP if no punch
+ Leave ignored by payroll             Unless attendance has LEAVE
+ Import Attendance = Calculate        Same endpoint
+
+33. Architecture Diagram
+
+SUPER ADMIN  salary_configurations    / payroll reopen / approve-lock-pa
+       %%%   Salary & Payroll page    (no Employee Payslips nav)
+       %%%
+
+ADMIN / HR   employees + employee_salary_structures
+       %%%   attendance / override (HR+)
+       %%%   p a y r o l l _ r u n s : c r e a t e !’ c a l c u l a t e !’ s u b m i t
+       %%%   A D M I N : a p p r o v e !’ l o c k !’ p a i d !’ p a y s l i p _ r e c o r d s
+       %%%
+
+MANAGER      attendance +            correction approve                         risk
+       %%%   payroll view            + employee payslips
+       %%%   salary setup            API: permission gap
+       %%%
+
+EMPLOYEE     p u n c h !’ a t t e n d a n c e
+       %%%   corrections + leave_requests
+       %%%   p a y s l i p _ r e c o r d s !’ M y P a y s l i p s
+       %%%
+
+a t t e n d a n c e !’ g e t A t t e n d a n c e S u m m a r y !’ c a l c u l a t e S a l a r y S t r u c t u r e
+salary_configurations %%%%%%%%%%%%%%%%%%%
+employee_salary_structures (CTC) %%%%%%%%
+
+                           !’ p a y r o l l _ r u n _ i t e m s !’ ( P A I D ) p a y s l i p _ r e c o r d s !’ E m p l o y e
+
+34. Recommended Implementation Order
+
+(Guidance only)
+
+ • 1. Confirm correction approve on deployed code uses reviewer_comment
+ • 2. Leave approve !’ write attendance LEAVE (or payroll read leave_requests)
+ • 3. Decide unmarked-day policy (credit vs LOP)
+ • 4. Auto MISSING_PUNCH / WEEK_OFF / HOLIDAY if required
+ • 5. Fix MANAGER salary permission vs route
+ • 6. Align HR payroll UI with approve restrictions
+ • 7. Optional: employee read-only My Salary Structure
+ • 8. TDS/loan/conveyance only if product requires
+
+Role Access Summary
+
+Role         Salary                   Payroll                                                                                 Payslip
+SUPER_ADMIN  Full                     Full + reopen                                                                           By ID; list hidden
+ADMIN        Full                     Full except reopen                                                                      Staff list
+HR           Full                     Create/calc/submit                                                                      Staff list
+
+                                     SSRRSSBBHHRRMMSS——SSaalalaryry&&PaPyaryorlloClloCmopmlepteleFteloFwlo| wPa| gPea8geof89
+MANAGER   Fragile view  View only                                                                     Staff list
+EMPLOYEE  None live     Own payslips                                                                  Own only
+
+End of document
+This PDF is a code-verified analysis of the existing SRSB HRMS. It must not be treated as a specification of unimplemented
+features.
+
+          SRSSRBSHBRHMRSM—S —SaSlaarlyar&y P&aPyaroylrloClloCmopmleptleetFeloFwlow| P|aPgaeg9e o9f 9
+

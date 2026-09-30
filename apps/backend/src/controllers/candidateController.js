@@ -1,4 +1,5 @@
 import { pool } from '../config/database.js';
+import { env } from '../config/env.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
 import { indiaDateNow } from '../utils/indiaTime.js';
@@ -129,6 +130,8 @@ export const listCandidates = asyncHandler(async (req, res) => {
   const keyword = String(req.query.search || '').trim().toLowerCase();
   const jobRole = String(req.query.jobRole || '').trim();
 
+  if (!env.demoMode) conditions.push('candidate.is_demo = 0');
+
   if (stage && stage !== 'ALL') {
     if (!allowedStages.includes(stage)) throw new AppError('Invalid candidate stage.', 400);
     conditions.push('application.stage = ?');
@@ -166,7 +169,9 @@ export const listCandidates = asyncHandler(async (req, res) => {
        candidate.date_of_birth, candidate.candidate_source, candidate.source_details,
        candidate.enrollment_date, candidate.current_location, candidate.preferred_location,
        candidate.total_experience, candidate.current_ctc, candidate.expected_ctc,
-       candidate.notice_period_days, candidate.skills, candidate.created_at,
+       candidate.notice_period_days, candidate.skills, candidate.created_at, candidate.is_demo,
+       ob.id AS onboarding_case_id, ob.status AS onboarding_case_status,
+       ob_employee.employee_id AS onboarding_employee_code,
        creator.full_name AS enrolled_by_name,
        application.id AS application_id, application.stage, application.assigned_recruiter_id,
        application.sourced_date, application.sourcing_notes, application.last_updated,
@@ -189,6 +194,8 @@ export const listCandidates = asyncHandler(async (req, res) => {
        (SELECT COUNT(*) FROM candidate_employment_history h WHERE h.candidate_id = candidate.id) AS history_count,
        (SELECT COUNT(*) FROM candidate_applications a2 WHERE a2.candidate_id = candidate.id) AS sourcing_count
      FROM candidates candidate
+     LEFT JOIN onboarding_cases ob ON ob.candidate_id = candidate.id
+     LEFT JOIN employees ob_employee ON ob_employee.id = ob.employee_id
      LEFT JOIN employees creator ON creator.id = candidate.created_by
      LEFT JOIN candidate_applications application ON application.candidate_id = candidate.id
      LEFT JOIN job_openings opening ON opening.id = application.opening_id
@@ -429,7 +436,7 @@ export const updateCandidateStage = asyncHandler(async (req, res) => {
 
   const [[application]] = await pool.query(
     `SELECT ca.id, ca.stage AS current_stage, jo.status AS opening_status, jo.title AS job_role,
-       candidate.full_name AS candidate_name, client.company_name
+       candidate.full_name AS candidate_name, candidate.is_demo, client.company_name
      FROM candidate_applications ca
      JOIN candidates candidate ON candidate.id = ca.candidate_id
      JOIN job_openings jo ON jo.id = ca.opening_id
@@ -437,7 +444,9 @@ export const updateCandidateStage = asyncHandler(async (req, res) => {
      WHERE ca.id = ?`,
     [applicationId]
   );
-  if (!application) throw new AppError('Candidate sourcing record not found.', 404);
+  if (!application || (application.is_demo && !env.demoMode)) {
+    throw new AppError('Candidate sourcing record not found.', 404);
+  }
   if (application.opening_status === 'CLOSED' && stage !== application.current_stage) {
     throw new AppError('Candidate stage cannot be changed after the requirement is closed.', 409);
   }

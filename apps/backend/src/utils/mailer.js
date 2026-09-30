@@ -126,3 +126,73 @@ export async function sendPasswordResetOtp({
     ...email
   });
 }
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[ch]);
+}
+
+export async function sendAccountInvitation({
+  to,
+  employeeName,
+  employeeCode,
+  companyName,
+  activationUrl,
+  expiresAt
+}) {
+  const expiry = new Date(expiresAt).toLocaleString('en-IN', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'Asia/Kolkata'
+  });
+  const company = companyName || 'SRSB Workforce Solutions';
+
+  await sendWithResend({
+    to,
+    subject: `Activate your ${company} employee account`,
+    text: `Hello ${employeeName},
+
+Welcome to ${company}. Your employee account has been created.
+
+Employee ID: ${employeeCode}
+
+Open the link below to verify your email address and create your password:
+${activationUrl}
+
+This link can be used once and expires on ${expiry} (IST).
+After activation, sign in with your Employee ID and the password you created.
+
+If you did not expect this email, you can ignore it.
+
+Regards,
+${company}`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.6;max-width:560px">
+        <h2>Activate your employee account</h2>
+        <p>Hello ${escapeHtml(employeeName)},</p>
+        <p>Welcome to ${escapeHtml(company)}. Your employee account has been created.</p>
+        <p><strong>Employee ID:</strong> ${escapeHtml(employeeCode)}</p>
+        <p>Verify your email address and create your password:</p>
+        <p>
+          <a href="${escapeHtml(activationUrl)}"
+             style="display:inline-block;background:#0f766e;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:bold">
+            Activate my account
+          </a>
+        </p>
+        <p style="font-size:13px;color:#555">
+          This link can be used once and expires on ${escapeHtml(expiry)} (IST).
+          If the button does not work, copy this address into your browser:<br>
+          <span style="word-break:break-all">${escapeHtml(activationUrl)}</span>
+        </p>
+        <p>After activation, sign in with your Employee ID and the password you created.</p>
+        <p style="font-size:13px;color:#555">If you did not expect this email, you can ignore it.</p>
+        <p>Regards,<br>${escapeHtml(company)}</p>
+      </div>
+    `
+  });
+}
