@@ -14,6 +14,8 @@ import {
   X
 } from 'lucide-react';
 import api from '../../services/api.js';
+import { useAuth } from '../../context/AuthContext.jsx';
+import AttendanceFinalizationCard from './AttendanceFinalizationCard.jsx';
 import MonthlyCalendar, {
   shiftMonth
 } from '../../components/MonthlyCalendar.jsx';
@@ -114,6 +116,8 @@ function inputDateTime(
 }
 
 export default function AttendanceManagement() {
+  const { user } = useAuth();
+  const canFinalize = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role);
   const today = useMemo(
     () => indiaDateValue(),
     []
@@ -344,6 +348,8 @@ export default function AttendanceManagement() {
           {error}
         </div>
       )}
+
+      {canFinalize && <AttendanceFinalizationCard role={user?.role} />}
 
       <div className="attendance-admin-layout">
         <div className="card attendance-admin-calendar">

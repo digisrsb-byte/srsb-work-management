@@ -119,5 +119,7 @@ export const env = {
   // When the activation email fails, return the link to the admin who resent it so local
   // testing works without SMTP. Never enabled in production.
   inviteLinkFallback:
-    nodeEnv !== 'production' && process.env.INVITE_LINK_FALLBACK !== 'false'
+    nodeEnv !== 'production' && process.env.INVITE_LINK_FALLBACK !== 'false',
+  // Local testing switch: payslip emails are rendered but not sent, and recorded as SKIPPED.
+  payslipEmailDryRun: process.env.PAYSLIP_EMAIL_DRY_RUN === 'true'
 };

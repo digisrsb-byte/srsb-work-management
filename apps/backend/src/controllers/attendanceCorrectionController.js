@@ -6,6 +6,7 @@ import {
   indiaDateNow,
   wallClockMinutes
 } from '../utils/indiaTime.js';
+import { assertAttendanceDateEditable } from '../services/attendancePeriodService.js';
 
 const issueTypes = [
   'FORGOT_PUNCH_IN',
@@ -68,6 +69,7 @@ export const createCorrectionRequest = asyncHandler(async (req, res) => {
   }
   if (!issueTypes.includes(issueType)) throw new AppError('Select a valid attendance issue.', 400);
   if (reason.length < 5) throw new AppError('Please provide a reason for the correction.', 400);
+  await assertAttendanceDateEditable(req.user.id, correctionDate);
 
   const requestedPunchIn = toSqlDateTime(correctionDate, req.body.requestedPunchIn);
   const requestedPunchOut = toSqlDateTime(correctionDate, req.body.requestedPunchOut);
@@ -223,6 +225,7 @@ export const reviewCorrectionRequest = asyncHandler(async (req, res) => {
     if (req.body.approvedPunchOut) punchOut = toSqlDateTime(correctionDate, req.body.approvedPunchOut);
 
     if (decision === 'APPROVED') {
+      await assertAttendanceDateEditable(request.employee_id, correctionDate, connection);
       if (punchIn && punchOut && wallClockMinutes(punchIn, punchOut) <= 0) {
         throw new AppError('Approved punch-out must be later than punch-in.', 400);
       }
@@ -294,6 +297,7 @@ export const adminUpsertAttendance = asyncHandler(async (req, res) => {
   if (Number(employeeId) === Number(req.user.id) && req.user.role !== 'SUPER_ADMIN') {
     throw new AppError('Use your own punch controls or submit a correction request.', 403);
   }
+  await assertAttendanceDateEditable(employeeId, date);
 
   const punchIn = toSqlDateTime(date, req.body.punchIn);
   const punchOut = toSqlDateTime(date, req.body.punchOut);

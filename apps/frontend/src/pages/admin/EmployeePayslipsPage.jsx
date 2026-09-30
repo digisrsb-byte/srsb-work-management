@@ -11,7 +11,7 @@ import {
 } from '../../services/payslip.js';
 
 const PAYSLIP_LIST_LIMIT = 300;
-const EMPTY_FILTERS = { search: '', year: '', month: '' };
+const EMPTY_FILTERS = { search: '', year: '', month: '', companyId: '', runId: '' };
 
 const SORT_ACCESSORS = {
   emp_code: (r) => r.emp_code,
@@ -27,12 +27,18 @@ export default function EmployeePayslipsPage() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const [rows, setRows] = useState([]);
+  const [companies, setCompanies] = useState([]);
   const [selected, setSelected] = useState(null);
   const [error, setError] = useState('');
-  const [filters, setFilters] = useState({
-    search: '',
-    year: searchParams.get('year') || new Date().getFullYear(),
-    month: searchParams.get('month') || ''
+  const [filters, setFilters] = useState(() => {
+    const companyId = searchParams.get('companyId') || '';
+    return {
+      search: '',
+      companyId,
+      runId: searchParams.get('runId') || '',
+      year: searchParams.get('year') || (companyId ? '' : new Date().getFullYear()),
+      month: searchParams.get('month') || ''
+    };
   });
   const table = useSortedPagination(rows, {
     accessors: SORT_ACCESSORS,
@@ -45,6 +51,8 @@ export default function EmployeePayslipsPage() {
       setError('');
       const params = {};
       if (activeFilters.search) params.search = activeFilters.search;
+      if (activeFilters.companyId) params.companyId = activeFilters.companyId;
+      if (activeFilters.runId) params.runId = activeFilters.runId;
       if (activeFilters.year) params.year = activeFilters.year;
       if (activeFilters.month) params.month = activeFilters.month;
       const res = await api.get('/payroll/payslips', { params });
@@ -55,18 +63,14 @@ export default function EmployeePayslipsPage() {
   }
 
   useEffect(() => {
-    if (user?.role === 'SUPER_ADMIN') return;
     load();
+    api
+      .get('/access/companies')
+      .then((res) => setCompanies(res.data.data || []))
+      .catch(() => setCompanies([]));
   }, [user?.role]);
 
-  if (user?.role === 'SUPER_ADMIN') {
-    return (
-      <div className="card">
-        <h1 className="page-title">Employee Payslips</h1>
-        <p>This page is not available in the Super Admin portal.</p>
-      </div>
-    );
-  }
+  const companyName = companies.find((c) => String(c.id) === String(filters.companyId))?.name;
 
   function clearFilters() {
     setFilters(EMPTY_FILTERS);
@@ -88,14 +92,18 @@ export default function EmployeePayslipsPage() {
     await generatePayslipPdf(selected, { companyAddressDefault: COMPANY_ADDRESS_DEFAULT });
   }
 
-  const hasFilters = Boolean(filters.search || filters.year || filters.month);
+  const hasFilters = Boolean(filters.search || filters.year || filters.month || filters.companyId || filters.runId);
 
   return (
     <div>
       <div className="section-heading">
         <div>
-          <h1 className="page-title">Employee Payslips</h1>
-          <p className="page-subtitle">View and download payslips for employees in your scope.</p>
+          <h1 className="page-title">{companyName ? `${companyName} — Payslips` : 'Employee Payslips'}</h1>
+          <p className="page-subtitle">
+            {filters.runId
+              ? `Payslips released in payroll run #${filters.runId}.`
+              : 'View and download payslips for employees in your scope.'}
+          </p>
         </div>
       </div>
 
@@ -103,7 +111,7 @@ export default function EmployeePayslipsPage() {
 
       <div className="card" style={{ marginBottom: 16 }}>
         <form
-          style={{ display: 'grid', gridTemplateColumns: 'minmax(200px, 2fr) repeat(2, minmax(120px, 1fr)) auto auto', gap: 10, alignItems: 'center' }}
+          style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, alignItems: 'center' }}
           onSubmit={(e) => {
             e.preventDefault();
             load();
@@ -115,6 +123,19 @@ export default function EmployeePayslipsPage() {
             value={filters.search}
             onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
           />
+          <select
+            className="input"
+            aria-label="Company"
+            value={filters.companyId}
+            onChange={(e) => setFilters((f) => ({ ...f, companyId: e.target.value, runId: '' }))}
+          >
+            <option value="">All companies</option>
+            {companies.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
           <input
             className="input"
             type="number"

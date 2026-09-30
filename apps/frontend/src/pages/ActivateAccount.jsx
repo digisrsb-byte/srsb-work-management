@@ -67,7 +67,7 @@ export default function ActivateAccount() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [token, setToken] = useState(() => searchParams.get('token') || '');
   const [companyCode, setCompanyCode] = useState(() => searchParams.get('company') || '');
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
 
   const [status, setStatus] = useState('checking');
@@ -187,15 +187,21 @@ export default function ActivateAccount() {
               </div>
               {user ? (
                 <p>
-                  This browser is signed in as {user.full_name || user.employee_id}. Sign out first, then sign in with
-                  Employee ID <strong>{done.employeeCode}</strong>.
+                  This browser is signed in as {user.full_name || user.employee_id}. Continuing will sign that account
+                  out so you can sign in with Employee ID <strong>{done.employeeCode}</strong>.
                 </p>
               ) : null}
               <button
                 type="button"
                 className="btn btn-primary"
                 style={{ width: '100%', marginTop: 12 }}
-                onClick={() => navigate('/login', { replace: true, state: { loginId: done.employeeCode } })}
+                onClick={() => {
+                  if (user) {
+                    logout();
+                    sessionStorage.removeItem('srsb_employee_portal_return');
+                  }
+                  navigate('/login', { replace: true, state: { loginId: done.employeeCode } });
+                }}
               >
                 Go to sign in
               </button>

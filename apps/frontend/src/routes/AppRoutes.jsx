@@ -46,7 +46,7 @@ const adminRoles = [
   'HR',
   'MANAGER'
 ];
-const payslipStaffRoles = ['ADMIN', 'HR', 'MANAGER'];
+const payslipStaffRoles = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'];
 
 export function homePathFor(user) {
   if (!user) return getUnauthenticatedHome();

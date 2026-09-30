@@ -3,6 +3,7 @@ import { Building2, BriefcaseBusiness, Cake, CalendarDays, IndianRupee, ListTodo
 import api from '../../services/api.js';
 import StatCard from '../../components/StatCard.jsx';
 import { useAuth } from '../../context/AuthContext.jsx';
+import WorkflowOverview from '../../components/WorkflowOverview.jsx';
 
 const money = (value) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Number(value || 0));
 const label = (value) => String(value || '').replaceAll('_',' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -17,6 +18,7 @@ export default function AdminDashboard() {
   if (!data) return <div className="card">Loading dashboard...</div>;
 
   const greetings = data.greetings || {};
+  const canRunPayrollWorkflow = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role);
   return <div className="module-page">
     <div className="page-heading-row"><div><p className="eyebrow">Live Company Overview</p><h1 className="page-title">HR & Recruitment Dashboard</h1><p className="page-subtitle">Workforce, candidates, client requirements, tasks and today’s company moments.</p></div></div>
 
@@ -37,5 +39,7 @@ export default function AdminDashboard() {
       <div className="card"><div className="section-heading"><div><h2>Recruitment Pipeline</h2><p className="page-subtitle">Current candidate sourcing stages.</p></div></div><div className="pipeline-list">{(data.pipeline || []).length === 0 ? <p className="empty-copy">No candidate applications yet.</p> : data.pipeline.map((item) => <div key={item.stage}><span>{label(item.stage)}</span><strong>{item.value}</strong></div>)}</div></div>
       <div className="card"><div className="section-heading"><div><h2>Candidate Birthday Reminders</h2><p className="page-subtitle">Recruiters can contact candidates celebrating today.</p></div><Cake size={20}/></div><div className="birthday-list">{(greetings.candidateBirthdays || []).length === 0 ? <p className="empty-copy">No candidate birthdays today.</p> : greetings.candidateBirthdays.map((candidate) => <div key={candidate.id}><strong>{candidate.full_name}</strong><span>{candidate.phone || candidate.email || 'No contact details'}</span></div>)}</div></div>
     </div>
+
+    {canRunPayrollWorkflow && <div style={{ marginTop: 22 }}><WorkflowOverview /></div>}
   </div>;
 }

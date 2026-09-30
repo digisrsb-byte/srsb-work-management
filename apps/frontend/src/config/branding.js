@@ -1,5 +1,5 @@
 // Company logo artwork on a transparent background (849 x 361). Place it on white (#FFFFFF) surfaces.
-export const COMPANY_LOGO_URL = `${import.meta.env.BASE_URL || '/'}srsb-logo.png`;
+export const COMPANY_LOGO_URL = `${import.meta.env?.BASE_URL || '/'}srsb-logo.png`;
 export const COMPANY_LOGO_ASPECT = 849 / 361;
 
 export const COMPANY_DETAILS = {

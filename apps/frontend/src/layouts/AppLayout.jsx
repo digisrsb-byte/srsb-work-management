@@ -135,9 +135,8 @@ export default function AppLayout({ mode }) {
         return user?.role === 'SUPER_ADMIN';
       }
 
-      // Employee Payslips: Admin / HR / Manager only, not Super Admin
       if (item.path === '/admin/employee-payslips') {
-        return ['ADMIN', 'HR', 'MANAGER'].includes(user?.role);
+        return ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'].includes(user?.role);
       }
 
       if (

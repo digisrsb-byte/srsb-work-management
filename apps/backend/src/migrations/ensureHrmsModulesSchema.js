@@ -29,7 +29,8 @@ const MODULE_MIGRATIONS = [
   '014_employee_account_invitations.sql',
   '015_document_withdrawal.sql',
   '016_document_draft_uploads.sql',
-  '017_onboarding_bank_details.sql'
+  '017_onboarding_bank_details.sql',
+  '018_payroll_release_workflow.sql'
 ];
 
 // The files were written for a single hard-coded database; the connection

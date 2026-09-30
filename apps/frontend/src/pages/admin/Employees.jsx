@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { MailCheck, Package, Plus, Pencil, Search, Trash2, X } from 'lucide-react';
 import api from '../../services/api.js';
 import { useAuth } from '../../context/AuthContext.jsx';
@@ -90,6 +90,16 @@ export default function Employees() {
       setError(requestError.response?.data?.message || 'Unable to load employee information.');
     });
   }, [loadMeta, loadEmployees]);
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  const editParam = searchParams.get('edit');
+  useEffect(() => {
+    if (!editParam || loading) return;
+    const target = employees.find((employee) => String(employee.id) === editParam);
+    if (target) openEdit(target);
+    else setError('That employee is not in your employee list.');
+    setSearchParams({}, { replace: true });
+  }, [editParam, employees, loading]);
 
   const allowedRoles = useMemo(
     () => roles.filter((role) => user?.role === 'SUPER_ADMIN' || role !== 'ADMIN'),

@@ -20,7 +20,11 @@ import {
   reopenPayrollRun,
   listMyPayslips,
   listScopedPayslips,
-  getPayslip
+  getPayslip,
+  getRunEmployeePayslip,
+  getRunEmailDeliveries,
+  retryRunEmailDeliveries,
+  resendPayslipEmail
 } from '../controllers/payrollController.js';
 
 const router = Router();
@@ -32,7 +36,7 @@ router.use(authenticate);
 router.get('/me/payslips', listMyPayslips);
 router.get(
   '/payslips',
-  allowRoles(...payslipStaffRoles),
+  allowRoles('SUPER_ADMIN', ...payslipStaffRoles),
   listScopedPayslips
 );
 router.get('/payslips/:payslipId', [param('payslipId').isInt({ min: 1 })], validate, getPayslip);
@@ -137,6 +141,46 @@ router.post(
   [param('runId').isInt({ min: 1 })],
   validate,
   markPayrollPaid
+);
+
+router.post(
+  '/runs/:runId/release',
+  allowRoles('SUPER_ADMIN', 'ADMIN'),
+  [param('runId').isInt({ min: 1 })],
+  validate,
+  markPayrollPaid
+);
+
+router.get(
+  '/runs/:runId/employees/:employeeId/payslip',
+  allowRoles(...adminRoles),
+  [param('runId').isInt({ min: 1 }), param('employeeId').isInt({ min: 1 })],
+  validate,
+  getRunEmployeePayslip
+);
+
+router.get(
+  '/runs/:runId/email-deliveries',
+  allowRoles(...adminRoles),
+  [param('runId').isInt({ min: 1 })],
+  validate,
+  getRunEmailDeliveries
+);
+
+router.post(
+  '/runs/:runId/email-deliveries/retry',
+  allowRoles('SUPER_ADMIN', 'ADMIN'),
+  [param('runId').isInt({ min: 1 })],
+  validate,
+  retryRunEmailDeliveries
+);
+
+router.post(
+  '/runs/:runId/email-deliveries/:deliveryId/resend',
+  allowRoles('SUPER_ADMIN', 'ADMIN', 'HR'),
+  [param('runId').isInt({ min: 1 }), param('deliveryId').isInt({ min: 1 })],
+  validate,
+  resendPayslipEmail
 );
 
 router.post(

@@ -8,6 +8,7 @@ import {
   resolveRange
 } from '../services/attendanceScheduleService.js';
 import { addDays, summarizeDays } from '../services/attendanceDayRules.js';
+import { assertAttendanceDateEditable } from '../services/attendancePeriodService.js';
 
 export const MAX_HISTORY_DAYS = 60;
 
@@ -1457,6 +1458,7 @@ export const adminAdjustAttendance =
         400
       );
     }
+    await assertAttendanceDateEditable(employeeId, date);
 
     const requestedStatus = String(
       req.body.status || ''

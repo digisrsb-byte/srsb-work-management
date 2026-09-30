@@ -41,7 +41,7 @@ function activationUrl(token) {
   return `${env.appBaseUrl}/#/activate-account?token=${encodeURIComponent(token)}&company=${encodeURIComponent(companyCode)}`;
 }
 
-function deliveryErrorMessage(error) {
+export function deliveryErrorMessage(error) {
   const text = String(error?.message || 'Unknown email error');
   if (/not configured/i.test(text)) return 'Email service is not configured on the server.';
   if (error?.code === 'EAUTH') return 'The email server rejected the SMTP login.';

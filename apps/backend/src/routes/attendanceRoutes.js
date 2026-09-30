@@ -32,6 +32,11 @@ import {
   rejectAttendanceCorrection,
   manualAttendanceOverride
 } from '../controllers/attendanceCorrectionWorkflowController.js';
+import {
+  getAttendancePeriod,
+  finalizeAttendancePeriod,
+  reopenAttendancePeriod
+} from '../controllers/attendancePeriodController.js';
 
 const router = Router();
 const reviewRoles = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'];
@@ -167,6 +172,36 @@ router.post(
   ],
   validate,
   manualAttendanceOverride
+);
+
+const periodValidators = (source) => [
+  source('year').isInt({ min: 2000, max: 2100 }),
+  source('month').isInt({ min: 1, max: 12 }),
+  source('companyId').optional().isInt({ min: 1 })
+];
+
+router.get(
+  '/periods',
+  allowRoles(...reviewRoles),
+  periodValidators(query),
+  validate,
+  getAttendancePeriod
+);
+
+router.post(
+  '/periods/finalize',
+  allowRoles(...overrideRoles),
+  periodValidators(body),
+  validate,
+  finalizeAttendancePeriod
+);
+
+router.post(
+  '/periods/reopen',
+  allowRoles('SUPER_ADMIN', 'ADMIN'),
+  [...periodValidators(body), body('reason').trim().notEmpty()],
+  validate,
+  reopenAttendancePeriod
 );
 
 export default router;

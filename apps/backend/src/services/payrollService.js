@@ -86,6 +86,7 @@ export async function calculateEmployeePayrollItem({
     enableBonus: Boolean(Number(structure.enable_bonus)),
     enableAttendanceBonus: Boolean(Number(structure.enable_attendance_bonus)),
     enableGratuity: Boolean(Number(structure.enable_gratuity)),
+    pfApplicable: structure.pf_applicable == null ? true : Boolean(Number(structure.pf_applicable)),
     workingDays
   };
 

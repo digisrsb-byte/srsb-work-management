@@ -1,14 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
-import { ChevronDown, LayoutDashboard, ListChecks, SlidersHorizontal, UserCog } from 'lucide-react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  ChevronDown,
+  Eye,
+  FileDown,
+  LayoutDashboard,
+  ListChecks,
+  Mail,
+  RefreshCw,
+  SlidersHorizontal,
+  UserCog
+} from 'lucide-react';
 import api from '../../services/api.js';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { buildPayslipFigures, formatCurrencyINR as inr } from '../../services/payslip.js';
 import {
+  buildPayslipFigures,
+  formatCurrencyINR as inr,
+  generatePayslipPdf,
+  payslipFileName
+} from '../../services/payslip.js';
+import PayslipCard, {
   EarningsDeductionsTable,
   EmployerContributions,
   NetPayBanner
 } from '../../components/PayslipCard.jsx';
+import { Modal } from './assets/assetUi.jsx';
 import PayrollStatusStepper, { PAYROLL_STATUS_COLORS } from '../../components/PayrollStatusStepper.jsx';
 import { PaginationBar, SortableTh, useSortedPagination } from '../../components/TableControls.jsx';
 
@@ -45,6 +61,10 @@ const OVERLAY_STYLE = {
 };
 
 const pad2 = (n) => String(n).padStart(2, '0');
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
 const isOn = (v) => Boolean(Number(v));
 
 function Chip({ label, value }) {
@@ -198,6 +218,7 @@ function ToggleBlock({ title, checked, onChange, children, collapseWhenOff = fal
 export default function PayrollPage() {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [companies, setCompanies] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [runs, setRuns] = useState([]);
@@ -242,6 +263,13 @@ export default function PayrollPage() {
   const [companySaving, setCompanySaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [payslipPreview, setPayslipPreview] = useState(null);
+  const [payslipBusy, setPayslipBusy] = useState(null);
+  const [deliveries, setDeliveries] = useState(null);
+  const [deliveryBusy, setDeliveryBusy] = useState(false);
+  const [releaseResult, setReleaseResult] = useState(null);
+  const [statutory, setStatutory] = useState({ pfApplicable: true, uanNumber: '' });
+  const [salaryHistory, setSalaryHistory] = useState([]);
   const runDetailRef = useRef(null);
   const ctcInputRef = useRef(null);
 
@@ -249,7 +277,7 @@ export default function PayrollPage() {
   const canOperate = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(role);
   const canApprove = ['SUPER_ADMIN', 'ADMIN'].includes(role);
   const isSuperAdmin = role === 'SUPER_ADMIN';
-  const canViewEmployeePayslips = ['ADMIN', 'HR', 'MANAGER'].includes(role);
+  const canViewEmployeePayslips = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'].includes(role);
 
   const tabParam = searchParams.get('tab');
   const activeTab = TABS.some((t) => t.key === tabParam) ? tabParam : 'overview';
@@ -308,6 +336,8 @@ export default function PayrollPage() {
 
   useEffect(() => {
     load().catch(() => setError('Unable to load payroll data.'));
+    const runParam = Number(searchParams.get('run'));
+    if (runParam) viewRun(runParam);
   }, []);
 
   useEffect(() => {
@@ -323,7 +353,13 @@ export default function PayrollPage() {
     setPreview(null);
     if (!employeeId) return;
     const res = await api.get(`/payroll/employee/${employeeId}/setup`);
-    const active = res.data.data.structures?.[0];
+    const setup = res.data.data;
+    setSalaryHistory(setup.structures || []);
+    setStatutory({
+      pfApplicable: setup.statutory?.pfApplicable ?? true,
+      uanNumber: setup.statutory?.uanNumber || ''
+    });
+    const active = setup.structures?.[0];
     if (active) {
       setSalaryForm({
         ctc: active.ctc,
@@ -364,7 +400,8 @@ export default function PayrollPage() {
         periodMonth: runForm.periodMonth,
         enableBonus: salaryForm.enableBonus,
         enableAttendanceBonus: salaryForm.enableAttendanceBonus,
-        enableGratuity: salaryForm.enableGratuity
+        enableGratuity: salaryForm.enableGratuity,
+        pfApplicable: statutory.pfApplicable
       });
       setPreview(res.data.data);
     } catch (err) {
@@ -387,15 +424,42 @@ export default function PayrollPage() {
         status: salaryForm.status,
         enableBonus: salaryForm.enableBonus,
         enableAttendanceBonus: salaryForm.enableAttendanceBonus,
-        enableGratuity: salaryForm.enableGratuity
+        enableGratuity: salaryForm.enableGratuity,
+        pfApplicable: statutory.pfApplicable,
+        uanNumber: statutory.pfApplicable ? statutory.uanNumber.trim() : undefined
       });
       setPreview(res.data.data.calculation || null);
       setMessage('Salary setup saved. Components calculated automatically from CTC.');
+      const refreshed = await api.get(`/payroll/employee/${selectedEmployee}/setup`);
+      setSalaryHistory(refreshed.data.data.structures || []);
       if (salaryFix && String(selectedEmployee) === salaryFix.employeeId) {
         await finishSalaryFix();
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Unable to save salary setup.');
+    }
+  }
+
+  function issueFix(issue) {
+    const run = selectedRun?.run;
+    switch (issue.code) {
+      case 'MISSING_SALARY_STRUCTURE':
+        return { label: 'Configure salary', open: () => startSalaryFix(issue) };
+      case 'MISSING_UAN':
+        return { label: 'Add UAN', open: () => startSalaryFix(issue) };
+      case 'ATTENDANCE_NOT_FINALIZED':
+        return {
+          label: 'Finalize attendance',
+          open: () => navigate(`/admin/attendance?finalize=${run.period_year}-${pad2(run.period_month)}`)
+        };
+      case 'PENDING_ATTENDANCE_CORRECTION':
+        return { label: 'Review request', open: () => navigate('/admin/attendance-corrections') };
+      case 'MISSING_EMAIL':
+        return { label: 'Add email', open: () => navigate(`/admin/employees?edit=${issue.employeeId}`) };
+      default: {
+        const item = (selectedRun?.items || []).find((i) => String(i.employee_id) === String(issue.employeeId));
+        return { label: 'View details', open: () => item && setDetailItem(item) };
+      }
     }
   }
 
@@ -545,6 +609,97 @@ export default function PayrollPage() {
     const res = await api.get(`/payroll/runs/${id}`);
     setSelectedRun(res.data.data);
     setDetailItem(null);
+    if (res.data.data?.run?.status === 'PAID') {
+      await loadDeliveries(id);
+    } else {
+      setDeliveries(null);
+    }
+    if (String(res.data.data?.run?.id) !== String(releaseResult?.runId)) setReleaseResult(null);
+  }
+
+  async function loadDeliveries(runId) {
+    try {
+      const res = await api.get(`/payroll/runs/${runId}/email-deliveries`);
+      setDeliveries({ runId, ...res.data.data });
+      return res.data.data;
+    } catch {
+      setDeliveries(null);
+      return null;
+    }
+  }
+
+  const deliveryPollRun = deliveries?.inProgress ? deliveries.runId : null;
+  useEffect(() => {
+    if (!deliveryPollRun) return undefined;
+    const timer = window.setInterval(async () => {
+      const data = await loadDeliveries(deliveryPollRun);
+      if (data && !data.inProgress) {
+        const res = await api.get(`/payroll/runs/${deliveryPollRun}`).catch(() => null);
+        if (res) setSelectedRun(res.data.data);
+      }
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [deliveryPollRun]);
+
+  async function fetchRunPayslip(item, download) {
+    const res = await api.get(`/payroll/runs/${selectedRun.run.id}/employees/${item.employee_id}/payslip`, {
+      params: download ? { download: 1 } : undefined
+    });
+    return res.data.data;
+  }
+
+  async function viewPayslip(item) {
+    setPayslipBusy(`view-${item.employee_id}`);
+    setError('');
+    try {
+      setPayslipPreview(await fetchRunPayslip(item, false));
+    } catch (err) {
+      setError(err.response?.data?.message || `Unable to load the payslip for ${item.emp_code}.`);
+    } finally {
+      setPayslipBusy(null);
+    }
+  }
+
+  async function downloadPayslip(item) {
+    setPayslipBusy(`pdf-${item.employee_id}`);
+    setError('');
+    try {
+      await generatePayslipPdf(await fetchRunPayslip(item, true));
+    } catch (err) {
+      setError(err.response?.data?.message || `Unable to download the payslip for ${item.emp_code}.`);
+    } finally {
+      setPayslipBusy(null);
+    }
+  }
+
+  async function retryFailedEmails() {
+    setDeliveryBusy(true);
+    setError('');
+    try {
+      const res = await api.post(`/payroll/runs/${selectedRun.run.id}/email-deliveries/retry`);
+      setMessage(res.data.message);
+      setDeliveries({ runId: selectedRun.run.id, ...res.data.data });
+    } catch (err) {
+      setError(err.response?.data?.message || 'Unable to retry payslip emails.');
+    } finally {
+      setDeliveryBusy(false);
+    }
+  }
+
+  async function resendEmail(delivery) {
+    setDeliveryBusy(true);
+    setError('');
+    try {
+      const res = await api.post(
+        `/payroll/runs/${selectedRun.run.id}/email-deliveries/${delivery.id}/resend`
+      );
+      setMessage(`${res.data.message} (${delivery.emp_code})`);
+      await loadDeliveries(selectedRun.run.id);
+    } catch (err) {
+      setError(err.response?.data?.message || `Unable to resend the payslip email to ${delivery.emp_code}.`);
+    } finally {
+      setDeliveryBusy(false);
+    }
   }
 
   function viewRun(id) {
@@ -555,7 +710,7 @@ export default function PayrollPage() {
   }
 
   async function runAction(path, { skipConfirm, reason } = {}) {
-    const needsConfirm = ['approve', 'lock', 'payment'].includes(path);
+    const needsConfirm = ['approve', 'lock', 'release'].includes(path);
     if (needsConfirm && !skipConfirm) {
       setConfirmAction(path);
       return undefined;
@@ -572,16 +727,20 @@ export default function PayrollPage() {
     try {
       const body = path.includes('reopen') ? { reason } : undefined;
       if (path.includes('reopen') && !body.reason) return 'A reason is required.';
-      await api.post(`/payroll/runs/${selectedRun.run.id}/${path}`, body);
+      const res = await api.post(`/payroll/runs/${selectedRun.run.id}/${path}`, body);
       const labels = {
         calculate: 'Attendance imported and payroll calculated.',
         submit: 'Payroll submitted for review.',
         approve: 'Payroll approved.',
-        lock: 'Payroll locked.',
-        payment: 'Payslips generated / marked paid.',
+        lock: 'Payroll locked. Payslips are ready — preview them below, then Submit & Release.',
         reopen: 'Payroll reopened.'
       };
-      setMessage(labels[path] || `Payroll ${path} completed.`);
+      if (path === 'release') {
+        setReleaseResult({ runId: selectedRun.run.id, ...res.data.data });
+        setMessage(res.data.message);
+      } else {
+        setMessage(labels[path] || `Payroll ${path} completed.`);
+      }
       await openRun(selectedRun.run.id);
       await load();
       return null;
@@ -754,11 +913,23 @@ export default function PayrollPage() {
       actions.push({ key: 'approve', path: 'approve', label: 'Approve Payroll', primary: true });
     }
     if (status === 'APPROVED' && canApprove) {
-      actions.push({ key: 'lock', path: 'lock', label: 'Lock Payroll', primary: true });
+      actions.push({
+        key: 'lock',
+        path: 'lock',
+        label: 'Generate Payslips & Lock',
+        title: 'Freeze the calculation so payslips can be reviewed before release',
+        primary: true
+      });
     }
     if (status === 'LOCKED') {
       if (canApprove) {
-        actions.push({ key: 'payment', path: 'payment', label: 'Generate Payslips / Mark Paid', primary: true });
+        actions.push({
+          key: 'release',
+          path: 'release',
+          label: 'Submit & Release Payslips',
+          title: 'Mark payroll paid, publish payslips to employees and email them',
+          primary: true
+        });
       }
       if (isSuperAdmin) {
         actions.push({ key: 'reopen', path: 'reopen', label: 'Reopen Payroll' });
@@ -1095,6 +1266,65 @@ export default function PayrollPage() {
                   </label>
                 </div>
 
+                <fieldset
+                  style={{ marginTop: 14, border: '1px solid var(--border)', borderRadius: 12, padding: '10px 14px 14px' }}
+                >
+                  <legend style={{ fontWeight: 800, fontSize: 13, padding: '0 6px' }}>PF &amp; Statutory</legend>
+                  <div role="radiogroup" aria-label="PF applicable" style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 13, fontWeight: 700 }}>PF applicable</span>
+                    <label>
+                      <input
+                        type="radio"
+                        name="pf-applicable"
+                        checked={statutory.pfApplicable}
+                        onChange={() => setStatutory((s) => ({ ...s, pfApplicable: true }))}
+                      />{' '}
+                      Yes
+                    </label>
+                    <label>
+                      <input
+                        type="radio"
+                        name="pf-applicable"
+                        checked={!statutory.pfApplicable}
+                        onChange={() => setStatutory((s) => ({ ...s, pfApplicable: false }))}
+                      />{' '}
+                      No
+                    </label>
+                  </div>
+                  {statutory.pfApplicable ? (
+                    <div className="form-grid" style={{ marginTop: 10 }}>
+                      <ConfigField
+                        label="UAN (Universal Account Number)"
+                        help={
+                          statutory.uanNumber && !/^\d{12}$/.test(statutory.uanNumber.replace(/\s/g, ''))
+                            ? <span style={{ color: '#b91c1c' }}>UAN must be exactly 12 digits.</span>
+                            : 'Printed (masked) on the payslip. Leave blank if not yet allotted.'
+                        }
+                      >
+                        <input
+                          className="input"
+                          inputMode="numeric"
+                          maxLength={14}
+                          placeholder="12-digit UAN"
+                          value={statutory.uanNumber}
+                          onChange={(e) => setStatutory((s) => ({ ...s, uanNumber: e.target.value }))}
+                        />
+                      </ConfigField>
+                      <ConfigField label="PF wage basis" help="Basic + DA, capped at the PF wage ceiling in Salary Configuration.">
+                        <input
+                          className="input"
+                          readOnly
+                          value={preview?.pfBase != null ? inr(preview.pfBase) : 'Calculate preview to see'}
+                        />
+                      </ConfigField>
+                    </div>
+                  ) : (
+                    <p className="helper-text" style={{ margin: '8px 0 0' }}>
+                      No employee or employer PF is deducted. The employer PF share is paid as Special Allowance so the CTC is unchanged.
+                    </p>
+                  )}
+                </fieldset>
+
                 <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
                   <button className="btn btn-secondary" type="button" onClick={runPreview}>
                     Calculate preview
@@ -1120,7 +1350,65 @@ export default function PayrollPage() {
             )}
           </div>
         </div>
+        {selectedEmployee ? renderSalaryHistory() : null}
       </div>
+    );
+  }
+
+  function renderSalaryHistory() {
+    const today = new Date().toISOString().slice(0, 10);
+    const active = salaryHistory.filter((s) => s.status === 'ACTIVE');
+    const currentId = active.find((s) => String(s.effective_date).slice(0, 10) <= today)?.id;
+    const tag = (s) => {
+      const date = String(s.effective_date).slice(0, 10);
+      if (s.status === 'ACTIVE' && date > today) return ['Scheduled', 'open'];
+      if (s.id === currentId) return ['Current', 'active'];
+      return ['Historical', 'muted'];
+    };
+    return (
+      <section style={{ marginTop: 20 }} aria-labelledby="salary-history-title">
+        <h3 id="salary-history-title" style={{ margin: '0 0 4px' }}>Salary history</h3>
+        <p className="helper-text" style={{ margin: '0 0 8px' }}>
+          Each salary change is kept. Payroll for a month uses the salary effective on the 1st of that month, so saving a
+          new CTC never changes past payroll.
+        </p>
+        {salaryHistory.length ? (
+          <div className="table-wrap">
+            <table className="table-cards">
+              <thead>
+                <tr>
+                  <th>Effective from</th>
+                  <th>Annual CTC</th>
+                  <th>Monthly gross</th>
+                  <th>PF</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {salaryHistory.map((s) => {
+                  const [label, variant] = tag(s);
+                  return (
+                    <tr key={s.id}>
+                      <td data-label="Effective from">{String(s.effective_date).slice(0, 10)}</td>
+                      <td data-label="Annual CTC">{inr(s.ctc)}</td>
+                      <td data-label="Monthly gross">{inr(s.calculation?.grossSalary)}</td>
+                      <td data-label="PF">{Number(s.pf_applicable ?? 1) ? 'Applicable' : 'Not applicable'}</td>
+                      <td data-label="Status">
+                        <span className={`badge badge-${variant}`}>{label}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="empty-state">
+            <strong>No salary saved yet</strong>
+            Enter the Annual CTC above and save to create the first salary structure.
+          </div>
+        )}
+      </section>
     );
   }
 
@@ -1452,37 +1740,35 @@ export default function PayrollPage() {
             }}
           >
             <h3 style={{ marginTop: 0 }}>Payroll Issues</h3>
-            <ul style={{ margin: 0, paddingLeft: 18 }}>
-              {(selectedRun.issues || []).map((issue, idx) => (
-                <li key={`${issue.code}-${issue.employeeId}-${idx}`} style={{ marginBottom: 8 }}>
-                  <strong>
-                    {issue.severity === 'BLOCKING' ? '⛔' : '⚠'} {issue.empCode}
-                  </strong>{' '}
-                  — {issue.message}
-                  {issue.action === 'review_correction' ? (
-                    <>
-                      {' '}
-                      <Link to="/admin/attendance-corrections">Review Request</Link>
-                    </>
-                  ) : null}
-                  {issue.action === 'configure_salary' ? (
-                    <>
-                      {' '}
-                      <button
-                        type="button"
-                        className="btn btn-secondary"
-                        style={{ padding: '2px 8px', fontSize: 12 }}
-                        onClick={() => startSalaryFix(issue)}
-                      >
-                        Configure Salary
-                      </button>
-                    </>
-                  ) : null}
-                </li>
-              ))}
+            <p className="helper-text" style={{ margin: '0 0 8px' }}>Click an issue to open the place where it is fixed.</p>
+            <ul className="issue-list">
+              {(selectedRun.issues || []).map((issue, idx) => {
+                const fix = issueFix(issue);
+                return (
+                  <li key={`${issue.code}-${issue.employeeId}-${idx}`}>
+                    <button
+                      type="button"
+                      className={`issue-row ${issue.severity === 'BLOCKING' ? 'blocking' : 'warning'}`}
+                      onClick={fix.open}
+                      aria-label={`${issue.empCode}: ${issue.message.replace(/\.$/, '')}. ${fix.label}`}
+                    >
+                      <span>
+                        <strong>
+                          {issue.severity === 'BLOCKING' ? '⛔' : '⚠'} {issue.empCode}
+                        </strong>{' '}
+                        — {issue.message}
+                      </span>
+                      <span className="issue-row-action">{fix.label} →</span>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         ) : null}
+
+        {renderEligibility()}
+        {renderReleaseSummary()}
 
         {actions.length ? (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -1501,55 +1787,295 @@ export default function PayrollPage() {
         ) : null}
 
         <div className="table-wrap" style={{ marginTop: 12 }}>
-          <table>
+          <table className="table-cards">
             <thead>
               <tr>
                 <th>Employee</th>
                 <th>Paid days</th>
                 <th>Gross</th>
-                <th>ESI</th>
+                <th>PF (Emp)</th>
                 <th>Net</th>
-                <th>Notes</th>
-                <th></th>
+                <th>Eligibility</th>
+                {runStatus === 'PAID' ? <th>Email</th> : null}
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {(selectedRun.items || []).length === 0 ? (
                 <tr>
-                  <td colSpan={7}>
-                    No employees calculated yet. Click Import Attendance / Calculate Payroll.
+                  <td colSpan={8} data-label="">
+                    <div className="empty-state">
+                      <strong>No employees calculated yet</strong>
+                      Click Import Attendance / Calculate Payroll to build this run.
+                    </div>
                   </td>
                 </tr>
               ) : (
-                (selectedRun.items || []).map((item) => (
-                  <tr key={item.id}>
-                    <td>
-                      {item.full_name}
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                        {item.emp_code}
-                      </div>
-                    </td>
-                    <td>{item.payable_days}</td>
-                    <td>{inr(item.gross_earnings)}</td>
-                    <td>{inr(item.esi_employee)}</td>
-                    <td>{inr(item.net_pay)}</td>
-                    <td>{item.calculation_notes || '—'}</td>
-                    <td>
-                      <button
-                        type="button"
-                        className="btn btn-secondary"
-                        onClick={() => setDetailItem(item)}
-                      >
-                        Detail
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                (selectedRun.items || []).map((item) => {
+                  const eligible = item.eligibility === 'ELIGIBLE';
+                  const monthName = MONTH_NAMES[Number(selectedRun.run.period_month) - 1];
+                  return (
+                    <tr key={item.id}>
+                      <td data-label="Employee">
+                        <span>
+                          {item.full_name}
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                            {item.emp_code}
+                            {item.pf_applicable === false ? ' · PF not applicable' : ''}
+                          </div>
+                        </span>
+                      </td>
+                      <td data-label="Paid days">{item.payable_days}</td>
+                      <td data-label="Gross">{inr(item.gross_earnings)}</td>
+                      <td data-label="PF (Emp)">{inr(item.pf_employee)}</td>
+                      <td data-label="Net"><strong>{inr(item.net_pay)}</strong></td>
+                      <td data-label="Eligibility">
+                        <span
+                          className={`badge badge-${eligible ? 'active' : 'blocked'}`}
+                          title={eligible ? undefined : item.calculation_notes || 'Resolve the payroll issue for this employee'}
+                        >
+                          {eligible ? 'Eligible' : 'Blocked'}
+                        </span>
+                      </td>
+                      {runStatus === 'PAID' ? (
+                        <td data-label="Email">
+                          {item.email_status ? (
+                            <span
+                              className={`badge badge-${item.email_status.toLowerCase()}`}
+                              title={item.email_error || undefined}
+                            >
+                              {item.email_status.charAt(0) + item.email_status.slice(1).toLowerCase()}
+                            </span>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                      ) : null}
+                      <td data-label="Actions">
+                        <span style={{ display: 'inline-flex', gap: 6 }}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            style={{ padding: '6px 10px' }}
+                            onClick={() => setDetailItem(item)}
+                          >
+                            Detail
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-btn"
+                            onClick={() => viewPayslip(item)}
+                            disabled={!eligible || Boolean(payslipBusy)}
+                            aria-label={`View Payslip for ${item.emp_code}`}
+                            title="View Payslip"
+                          >
+                            <Eye size={16} />
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-btn"
+                            onClick={() => downloadPayslip(item)}
+                            disabled={!eligible || Boolean(payslipBusy)}
+                            aria-label={`Download Payslip for ${item.emp_code}`}
+                            title={
+                              eligible
+                                ? `Download Payslip (${payslipFileName({
+                                    emp_code: item.emp_code,
+                                    period_month: selectedRun.run.period_month,
+                                    period_year: selectedRun.run.period_year
+                                  })})`
+                                : `Payslip unavailable — ${monthName} payroll is not calculated for this employee`
+                            }
+                          >
+                            {payslipBusy === `pdf-${item.employee_id}` ? (
+                              <RefreshCw size={16} className="spin" />
+                            ) : (
+                              <FileDown size={16} />
+                            )}
+                          </button>
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
+
+        {renderDeliveryPanel()}
       </>
+    );
+  }
+
+  function renderEligibility() {
+    if (!(selectedRun.items || []).length) return null;
+    const t = selectedRun.totals || {};
+    const finalized = selectedRun.attendance?.finalized;
+    return (
+      <div className="wf-kpis" style={{ margin: '12px 0' }} aria-label="Payroll eligibility">
+        <div className="wf-kpi">
+          <span>Attendance</span>
+          <strong style={{ color: finalized ? '#166534' : '#b45309', fontSize: 16 }}>
+            {finalized ? 'Finalized' : 'Not finalized'}
+          </strong>
+        </div>
+        <div className="wf-kpi"><span>Eligible</span><strong>{t.eligible ?? 0}</strong></div>
+        <div className="wf-kpi">
+          <span>Blocked</span>
+          <strong style={t.blocked ? { color: '#b91c1c' } : undefined}>{t.blocked ?? 0}</strong>
+        </div>
+        <div className="wf-kpi">
+          <span>No email</span>
+          <strong style={t.missingEmail ? { color: '#b45309' } : undefined}>{t.missingEmail ?? 0}</strong>
+        </div>
+        {runStatus === 'PAID' ? (
+          <div className="wf-kpi"><span>Payslips released</span><strong>{t.payslips ?? 0}</strong></div>
+        ) : null}
+      </div>
+    );
+  }
+
+  function renderReleaseSummary() {
+    if (runStatus !== 'PAID' || String(releaseResult?.runId) !== String(selectedRun.run.id)) return null;
+    const d = releaseResult.delivery || {};
+    return (
+      <div className="message message-success" role="status" style={{ margin: '12px 0', display: 'grid', gap: 4 }}>
+        <strong>Payroll {runPeriod} released.</strong>
+        <span>
+          {releaseResult.payslips} payslip(s) published to employees. {d.PENDING || 0} email(s) queued
+          {d.SKIPPED ? `, ${d.SKIPPED} skipped (no email address)` : ''}. Delivery status updates below.
+        </span>
+        {canViewEmployeePayslips ? (
+          <Link to={`/admin/employee-payslips?companyId=${selectedRun.run.company_id}&runId=${selectedRun.run.id}`}>
+            Open released payslips
+          </Link>
+        ) : null}
+      </div>
+    );
+  }
+
+  function renderDeliveryPanel() {
+    if (runStatus !== 'PAID' || !deliveries || String(deliveries.runId) !== String(selectedRun.run.id)) return null;
+    const c = deliveries.counts || {};
+    const failed = c.FAILED || 0;
+    return (
+      <section className="card" style={{ marginTop: 16, padding: 16 }} aria-labelledby="email-delivery-title">
+        <div className="section-heading" style={{ flexWrap: 'wrap' }}>
+          <div>
+            <h3 id="email-delivery-title" style={{ margin: 0, display: 'flex', gap: 8, alignItems: 'center' }}>
+              <Mail size={18} aria-hidden="true" /> Payslip email delivery
+            </h3>
+            <p className="page-subtitle" style={{ margin: '4px 0 0' }} aria-live="polite">
+              {c.SENT || 0} sent · {(c.PENDING || 0) + (c.SENDING || 0)} sending · {failed} failed · {c.SKIPPED || 0} skipped
+              {deliveries.inProgress ? ' — updating…' : ''}
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => loadDeliveries(selectedRun.run.id)}
+              disabled={deliveryBusy}
+            >
+              <RefreshCw size={16} /> Refresh
+            </button>
+            {canApprove ? (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={retryFailedEmails}
+                disabled={deliveryBusy || !failed}
+                title={failed ? undefined : 'No failed emails'}
+              >
+                Retry failed ({failed})
+              </button>
+            ) : null}
+          </div>
+        </div>
+        {deliveries.dryRun ? (
+          <p className="message message-warning" style={{ marginTop: 0 }}>
+            Email dry-run mode is on for this server: payslip PDFs are generated but no email is sent.
+          </p>
+        ) : null}
+        {deliveries.total ? (
+          <div className="table-wrap">
+            <table className="table-cards">
+              <thead>
+                <tr>
+                  <th>Employee</th>
+                  <th>Email</th>
+                  <th>Status</th>
+                  <th>Attempts</th>
+                  <th>Details</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {deliveries.deliveries.map((d) => (
+                  <tr key={d.id}>
+                    <td data-label="Employee">
+                      <span>
+                        {d.full_name}
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{d.emp_code}</div>
+                      </span>
+                    </td>
+                    <td data-label="Email">{d.email || '—'}</td>
+                    <td data-label="Status">
+                      <span className={`badge badge-${d.status.toLowerCase()}`}>
+                        {d.status.charAt(0) + d.status.slice(1).toLowerCase()}
+                      </span>
+                    </td>
+                    <td data-label="Attempts">{d.attempts}</td>
+                    <td data-label="Details" style={{ fontSize: 12, maxWidth: 320 }}>
+                      {d.status === 'SENT' && d.sent_at
+                        ? `Sent ${String(d.sent_at).slice(0, 16).replace('T', ' ')}`
+                        : d.last_error || '—'}
+                    </td>
+                    <td data-label="">
+                      {canOperate && ['FAILED', 'SENT', 'SKIPPED'].includes(d.status) && d.email ? (
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          style={{ padding: '6px 10px' }}
+                          onClick={() => resendEmail(d)}
+                          disabled={deliveryBusy}
+                          aria-label={`${d.status === 'SENT' ? 'Resend' : 'Retry'} payslip email for ${d.emp_code}`}
+                        >
+                          {d.status === 'SENT' ? 'Resend' : 'Retry'}
+                        </button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="empty-state">
+            <strong>No email deliveries</strong>
+            This run was released before payslip emails were introduced.
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  function renderPayslipPreview() {
+    if (!payslipPreview) return null;
+    return (
+      <Modal
+        title={`Payslip — ${payslipPreview.full_name} (${payslipPreview.emp_code})`}
+        subtitle={payslipPreview.is_preview ? 'Preview — not yet released to the employee.' : undefined}
+        onClose={() => setPayslipPreview(null)}
+        width={960}
+      >
+        <PayslipCard
+          payslip={payslipPreview}
+          variant="admin"
+          onDownload={() => generatePayslipPdf(payslipPreview)}
+        />
+      </Modal>
     );
   }
 
@@ -1663,7 +2189,7 @@ export default function PayrollPage() {
                         {canViewEmployeePayslips ? (
                           <Link
                             className="btn btn-secondary"
-                            to={`/admin/employee-payslips?year=${r.period_year}&month=${r.period_month}`}
+                            to={`/admin/employee-payslips?companyId=${r.company_id}&runId=${r.id}`}
                           >
                             Payslips
                           </Link>
@@ -1688,15 +2214,19 @@ export default function PayrollPage() {
           {renderRunDetail()}
           <p style={{ marginTop: 12 }}>
             {canViewEmployeePayslips ? (
-              <Link to="/admin/employee-payslips">Open Employee Payslips</Link>
-            ) : (
-              <span style={{ color: 'var(--text-muted)', cursor: 'default' }}>
-                Employee Payslips (not applicable for Super Admin)
-              </span>
-            )}
-            {' · '}
-            <Link to="/employee/payslips">My Payslips</Link>
-            {' · '}
+              <>
+                <Link
+                  to={
+                    selectedRun
+                      ? `/admin/employee-payslips?companyId=${selectedRun.run.company_id}`
+                      : '/admin/employee-payslips'
+                  }
+                >
+                  {selectedRun ? `All payslips — ${selectedRun.run.company_name}` : 'All company payslips'}
+                </Link>
+                {' · '}
+              </>
+            ) : null}
             <Link to="/admin/attendance-corrections">Correction Requests</Link>
           </p>
         </div>
@@ -1841,20 +2371,31 @@ export default function PayrollPage() {
         )
       },
       lock: {
-        title: 'Lock payroll',
+        title: 'Generate payslips & lock payroll',
         body: (
           <>
-            Locking will freeze this payroll run for <strong>{runPeriod}</strong> — no further recalculation will be
-            possible until reopened by a Super Admin.
+            Locking freezes payroll for <strong>{runPeriod}</strong> so payslips for{' '}
+            <strong>{runEmployeeCount}</strong> employees can be previewed and downloaded. No recalculation is possible
+            until a Super Admin reopens it. Employees do not see anything until you Submit &amp; Release.
           </>
         )
       },
-      payment: {
-        title: 'Generate payslips & mark paid',
+      release: {
+        title: `Submit & release payroll for ${runPeriod}?`,
         body: (
           <>
-            This will generate payslips for <strong>{runEmployeeCount}</strong> employees and notify them. This cannot be
-            undone.
+            <span style={{ display: 'block', marginBottom: 8 }}>
+              <strong>{runEmployeeCount}</strong> employees · <strong>{inr(runTotals.totalNet)}</strong> net pay ·{' '}
+              <strong>{runEmployeeCount - Number(runTotals.missingEmail || 0)}</strong> payslip email(s)
+              {Number(runTotals.missingEmail || 0) ? `, ${runTotals.missingEmail} without an email address` : ''}
+            </span>
+            <span style={{ display: 'block' }}>When you confirm:</span>
+            <span style={{ display: 'block', paddingLeft: 12 }}>• payroll is marked Paid and stays locked permanently;</span>
+            <span style={{ display: 'block', paddingLeft: 12 }}>• each employee can see their payslip in My Payslips;</span>
+            <span style={{ display: 'block', paddingLeft: 12 }}>
+              • each payslip PDF is emailed automatically — track delivery and retry failures on this page.
+            </span>
+            <span style={{ display: 'block', marginTop: 8, color: '#b91c1c', fontWeight: 700 }}>This cannot be undone.</span>
           </>
         )
       }
@@ -1864,7 +2405,7 @@ export default function PayrollPage() {
       <div style={OVERLAY_STYLE}>
         <div className="card" style={{ maxWidth: 460, width: '100%', padding: 20 }} role="dialog" aria-modal="true">
           <h3 style={{ marginTop: 0 }}>{content?.title || 'Confirm action'}</h3>
-          <p style={{ lineHeight: 1.5 }}>{content?.body}</p>
+          <div style={{ lineHeight: 1.5, margin: '0 0 14px' }}>{content?.body}</div>
           {blockApprove ? (
             <p className="message message-error">
               {blockingIssues} blocking issue{blockingIssues === 1 ? '' : 's'} remain. Resolve them before approving.
@@ -1880,7 +2421,7 @@ export default function PayrollPage() {
               disabled={blockApprove}
               onClick={() => runAction(confirmAction, { skipConfirm: true })}
             >
-              Confirm
+              {confirmAction === 'release' ? 'Submit & Release' : 'Confirm'}
             </button>
           </div>
         </div>
@@ -1984,6 +2525,7 @@ export default function PayrollPage() {
       {activeTab === 'runs' ? renderRuns() : null}
 
       {renderDetailPanel()}
+      {renderPayslipPreview()}
       {renderConfirmModal()}
       {renderReopenModal()}
       {renderCompanyModal()}

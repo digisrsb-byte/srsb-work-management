@@ -237,13 +237,16 @@ export function calculateSalaryStructure({
     overrides.enableAttendanceBonus ?? Boolean(Number(config.enable_attendance_bonus));
   const enableGratuity =
     overrides.enableGratuity ?? Boolean(Number(config.enable_gratuity));
+  const pfApplicable = overrides.pfApplicable ?? true;
+  const pfFor = (b, d) =>
+    pfApplicable ? calculatePf(b, d, config) : { pfBase: 0, employeePf: 0, employerPf: 0 };
 
   const monthlyCtc = MONEY(annual / 12);
   const basic = MONEY((monthlyCtc * Number(config.basic_percent || 40)) / 100);
   const da = MONEY((basic * Number(config.da_percent_of_basic || 0)) / 100);
   const hra = MONEY((basic * Number(config.hra_percent_of_basic || 0)) / 100);
 
-  const pf = calculatePf(basic, da, config);
+  const pf = pfFor(basic, da);
   const gratuity = enableGratuity
     ? MONEY((basic * Number(config.gratuity_percent_of_basic || 0)) / 100)
     : 0;
@@ -339,7 +342,7 @@ export function calculateSalaryStructure({
   const payableDa = MONEY(da * attendanceRatio);
   const payableHra = MONEY(hra * attendanceRatio);
   const payableSpecial = MONEY(specialAllowance * attendanceRatio);
-  const payablePf = calculatePf(payableBasic, payableDa, config);
+  const payablePf = pfFor(payableBasic, payableDa);
 
   const grossSalary = MONEY(
     payableBasic +
@@ -378,6 +381,7 @@ export function calculateSalaryStructure({
     employeePf: payablePf.employeePf,
     employerPf: payablePf.employerPf,
     pfBase: payablePf.pfBase,
+    pfApplicable,
     fullMonthEmployeePf: pf.employeePf,
     fullMonthEmployerPf: pf.employerPf,
     employeeEsi: esi.employeeEsi,
@@ -423,8 +427,8 @@ export function calculateSalaryStructure({
       { code: 'SPECIAL_ALLOWANCE', name: 'Special Allowance', amount: payableSpecial, annual: MONEY(specialAllowance * 12), monthly: specialAllowance, type: 'EARNING', contribution: 'NONE' },
       { code: 'BONUS', name: 'Bonus', amount: bonus, annual: MONEY(bonus * 12), monthly: bonus, type: 'EARNING', contribution: 'NONE', enabled: enableBonus },
       { code: 'ATTENDANCE_BONUS', name: 'Attendance Bonus', amount: attendanceBonus, annual: MONEY(attendanceBonus * 12), monthly: attendanceBonus, type: 'EARNING', contribution: 'NONE', enabled: enableAttendanceBonus, eligibility: attendanceBonusEligible },
-      { code: 'PF_EMPLOYEE', name: 'Employee PF', amount: payablePf.employeePf, annual: MONEY(pf.employeePf * 12), monthly: pf.employeePf, type: 'DEDUCTION', contribution: 'EMPLOYEE' },
-      { code: 'PF_EMPLOYER', name: 'Employer PF', amount: payablePf.employerPf, annual: MONEY(pf.employerPf * 12), monthly: pf.employerPf, type: 'EMPLOYER', contribution: 'EMPLOYER' },
+      { code: 'PF_EMPLOYEE', name: 'Employee PF', amount: payablePf.employeePf, annual: MONEY(pf.employeePf * 12), monthly: pf.employeePf, type: 'DEDUCTION', contribution: 'EMPLOYEE', enabled: pfApplicable },
+      { code: 'PF_EMPLOYER', name: 'Employer PF', amount: payablePf.employerPf, annual: MONEY(pf.employerPf * 12), monthly: pf.employerPf, type: 'EMPLOYER', contribution: 'EMPLOYER', enabled: pfApplicable },
       { code: 'ESI_EMPLOYEE', name: 'Employee ESI', amount: esi.employeeEsi, annual: MONEY(esi.employeeEsi * 12), monthly: esi.employeeEsi, type: 'DEDUCTION', contribution: 'EMPLOYEE', enabled: Boolean(Number(config.enable_esi)), status: esi.esiStatus },
       { code: 'ESI_EMPLOYER', name: 'Employer ESI', amount: esi.employerEsi, annual: MONEY(esi.employerEsi * 12), monthly: esi.employerEsi, type: 'EMPLOYER', contribution: 'EMPLOYER', enabled: Boolean(Number(config.enable_esi)), status: esi.esiStatus },
       { code: 'GRATUITY', name: 'Gratuity', amount: gratuity, annual: MONEY(gratuity * 12), monthly: gratuity, type: 'EMPLOYER', contribution: 'EMPLOYER', enabled: enableGratuity },
@@ -487,8 +491,8 @@ export function salaryResultToStoredComponents(result) {
     { component_code: 'SPECIAL_ALLOWANCE', component_name: 'Special Allowance', amount: result.specialAllowance, amount_status: 'SET', contribution_type: 'NONE', is_deduction: 0, sort_order: 4 },
     { component_code: 'BONUS', component_name: 'Bonus', amount: result.bonus, amount_status: result.bonus > 0 ? 'SET' : 'NOT_APPLICABLE', contribution_type: 'NONE', is_deduction: 0, sort_order: 5 },
     { component_code: 'ATTENDANCE_BONUS', component_name: 'Attendance Bonus', amount: result.attendanceBonus, amount_status: result.configSnapshot.enable_attendance_bonus ? 'SET' : 'NOT_APPLICABLE', contribution_type: 'NONE', is_deduction: 0, sort_order: 6 },
-    { component_code: 'PF_EMPLOYEE', component_name: 'Employee PF', amount: result.fullMonthEmployeePf, amount_status: 'SET', contribution_type: 'EMPLOYEE', is_deduction: 1, sort_order: 10 },
-    { component_code: 'PF_EMPLOYER', component_name: 'Employer PF', amount: result.fullMonthEmployerPf, amount_status: 'SET', contribution_type: 'EMPLOYER', is_deduction: 0, sort_order: 11 },
+    { component_code: 'PF_EMPLOYEE', component_name: 'Employee PF', amount: result.fullMonthEmployeePf, amount_status: result.pfApplicable === false ? 'NOT_APPLICABLE' : 'SET', contribution_type: 'EMPLOYEE', is_deduction: 1, sort_order: 10 },
+    { component_code: 'PF_EMPLOYER', component_name: 'Employer PF', amount: result.fullMonthEmployerPf, amount_status: result.pfApplicable === false ? 'NOT_APPLICABLE' : 'SET', contribution_type: 'EMPLOYER', is_deduction: 0, sort_order: 11 },
     { component_code: 'ESI_EMPLOYEE', component_name: 'Employee ESI', amount: result.employeeEsi, amount_status: result.esiStatus === 'DISABLED' ? 'NOT_APPLICABLE' : 'SET', contribution_type: 'EMPLOYEE', is_deduction: 1, sort_order: 12 },
     { component_code: 'ESI_EMPLOYER', component_name: 'Employer ESI', amount: result.employerEsi, amount_status: result.esiStatus === 'DISABLED' ? 'NOT_APPLICABLE' : 'SET', contribution_type: 'EMPLOYER', is_deduction: 0, sort_order: 13 },
     { component_code: 'GRATUITY', component_name: 'Gratuity', amount: result.gratuity, amount_status: result.gratuity > 0 ? 'SET' : 'NOT_APPLICABLE', contribution_type: 'EMPLOYER', is_deduction: 0, sort_order: 14 },

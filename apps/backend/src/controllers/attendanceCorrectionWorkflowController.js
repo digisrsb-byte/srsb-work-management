@@ -9,6 +9,7 @@ import {
 import { createNotification } from '../services/notificationService.js';
 import { DAY_OFF_CORRECTION_MESSAGE, isValidDateKey } from '../services/attendanceDayRules.js';
 import { resolveEmployeeDay } from '../services/attendanceScheduleService.js';
+import { assertAttendanceDateEditable } from '../services/attendancePeriodService.js';
 
 function toMysqlDateTime(value) {
   if (!value) return null;
@@ -41,6 +42,7 @@ export async function upsertAttendanceForDate({
   punchOut,
   remarks = null
 }) {
+  await assertAttendanceDateEditable(employeeId, date);
   const workMinutes = minutesBetween(punchIn, punchOut);
   const [existing] = await pool.query(
     `SELECT id, status, punch_in, punch_out
@@ -113,6 +115,7 @@ export const createAttendanceCorrection = asyncHandler(async (req, res) => {
   if (schedule.joiningDate && date < schedule.joiningDate) {
     throw new AppError('Corrections cannot be requested for dates before your joining date.', 400);
   }
+  await assertAttendanceDateEditable(employeeId, date);
 
   if (!requestedPunchIn || !requestedPunchOut) {
     throw new AppError('Requested punch in and punch out are required.', 400);

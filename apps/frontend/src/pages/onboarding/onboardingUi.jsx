@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import api from '../../services/api.js';
+import { showDocumentViewer } from '../../components/DocumentViewer.jsx';
 
 export const REVIEWER_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'];
 export const ONBOARDING_MANAGER_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HR'];
@@ -108,25 +109,23 @@ export function openBankProof(caseId, proof) {
 
 // Files are only served through the authorised API; the browser gets a temporary blob URL.
 export async function openPrivateFile(url, fileName, mimeType) {
-  const viewable = /^(application\/pdf|image\/)/.test(mimeType || '');
-  const preview = viewable ? window.open('', '_blank') : null;
   try {
     const response = await api.get(url, { responseType: 'blob' });
-    const blob = new Blob([response.data], { type: mimeType || response.data.type });
-    const blobUrl = window.URL.createObjectURL(blob);
-    if (preview) {
-      preview.location.href = blobUrl;
-    } else {
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      link.download = fileName || 'document';
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+    const type = mimeType || response.data.type;
+    const blob = new Blob([response.data], { type });
+    if (/^(application\/pdf|image\/)/.test(type || '')) {
+      showDocumentViewer({ blob, fileName, mimeType: type });
+      return;
     }
-    window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60000);
+    const objectUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = fileName || 'document';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 60000);
   } catch (err) {
-    preview?.close();
     let message = err?.response ? 'The document could not be opened.' : 'Cannot reach the server.';
     if (err?.response?.data instanceof Blob) {
       try {

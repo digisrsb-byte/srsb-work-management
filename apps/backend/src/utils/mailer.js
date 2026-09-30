@@ -56,7 +56,8 @@ async function sendWithResend({
   to,
   subject,
   text,
-  html
+  html,
+  attachments
 }) {
   if (
     !env.resendApiKey ||
@@ -83,7 +84,15 @@ async function sendWithResend({
         to: [to],
         subject,
         text,
-        html
+        html,
+        ...(attachments?.length
+          ? {
+              attachments: attachments.map((file) => ({
+                filename: file.filename,
+                content: Buffer.from(file.content).toString('base64')
+              }))
+            }
+          : {})
       })
     }
   );
@@ -135,6 +144,52 @@ function escapeHtml(value) {
     '"': '&quot;',
     "'": '&#39;'
   })[ch]);
+}
+
+export async function sendPayslipEmail({
+  to,
+  employeeName,
+  employeeCode,
+  companyName,
+  periodLabel,
+  attachment
+}) {
+  const company = companyName || 'SRSB Workforce Solutions';
+  const portalUrl = env.appBaseUrl ? `${env.appBaseUrl}/#/employee/payslips` : '';
+
+  await sendWithResend({
+    to,
+    subject: `Your payslip for ${periodLabel} — ${company}`,
+    text: `Hello ${employeeName},
+
+Your payslip for ${periodLabel} is attached (${attachment.filename}).
+Employee ID: ${employeeCode}
+${portalUrl ? `\nYou can also view it any time in the employee portal: ${portalUrl}\n` : ''}
+This payslip contains confidential salary information. Please do not forward it.
+
+Regards,
+${company}`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.6;max-width:560px">
+        <h2>Your payslip for ${escapeHtml(periodLabel)}</h2>
+        <p>Hello ${escapeHtml(employeeName)},</p>
+        <p>Your payslip for <strong>${escapeHtml(periodLabel)}</strong> is attached as
+          <strong>${escapeHtml(attachment.filename)}</strong>.</p>
+        <p><strong>Employee ID:</strong> ${escapeHtml(employeeCode)}</p>
+        ${
+          portalUrl
+            ? `<p>You can also view it any time in the
+                <a href="${escapeHtml(portalUrl)}" style="color:#0f766e">employee portal</a>.</p>`
+            : ''
+        }
+        <p style="font-size:13px;color:#555">This payslip contains confidential salary information. Please do not forward it.</p>
+        <p>Regards,<br>${escapeHtml(company)}</p>
+      </div>
+    `,
+    attachments: [
+      { filename: attachment.filename, content: attachment.content }
+    ]
+  });
 }
 
 export async function sendAccountInvitation({

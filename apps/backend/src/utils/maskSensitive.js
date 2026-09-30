@@ -27,6 +27,13 @@ export function maskAadhaar(value) {
   return `XXXX XXXX ${digits.slice(-4)}`;
 }
 
+// "XXXXXXXX9012" — only a well-formed 12-digit UAN is masked and shown.
+export function maskUan(value) {
+  const digits = compact(value);
+  if (!/^\d{12}$/.test(digits)) return null;
+  return `XXXXXXXX${digits.slice(-4)}`;
+}
+
 // "XXXXXX234F" — only a well-formed PAN (AAAAA9999A) is masked and shown.
 export function maskPan(value) {
   const pan = compact(value).toUpperCase();

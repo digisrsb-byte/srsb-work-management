@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext.jsx';
 import api from '../../services/api.js';
 
@@ -24,14 +25,17 @@ export default function AttendanceCorrectionsPage() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [statusFilter, setStatusFilter] = useState('PENDING');
-  const [override, setOverride] = useState({
-    employeeId: '',
-    date: new Date().toISOString().slice(0, 10),
+  const [searchParams] = useSearchParams();
+  const prefill = searchParams.get('employeeId') && searchParams.get('date');
+  const overrideRef = useRef(null);
+  const [override, setOverride] = useState(() => ({
+    employeeId: searchParams.get('employeeId') || '',
+    date: searchParams.get('date') || new Date().toISOString().slice(0, 10),
     status: 'PRESENT',
-    punchIn: '09:00',
+    punchIn: searchParams.get('punchIn') || '09:00',
     punchOut: '18:00',
-    reason: ''
-  });
+    reason: prefill ? 'Missing punch-out' : ''
+  }));
 
   const canOverride = ['SUPER_ADMIN', 'ADMIN', 'HR'].includes(user?.role);
 
@@ -53,6 +57,12 @@ export default function AttendanceCorrectionsPage() {
   useEffect(() => {
     load();
   }, [statusFilter]);
+
+  useEffect(() => {
+    if (prefill && employees.length) {
+      overrideRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [prefill, employees.length]);
 
   async function approve(id) {
     try {
@@ -177,9 +187,14 @@ export default function AttendanceCorrectionsPage() {
       </div>
 
       {canOverride ? (
-        <div className="card">
+        <div className="card" ref={overrideRef} style={{ scrollMarginTop: 88 }}>
           <h2>Manual Attendance Override</h2>
           <p className="page-subtitle">Admin/HR/Super Admin only. Reason is mandatory and audited.</p>
+          {prefill ? (
+            <div className="message message-info" style={{ marginTop: 8 }}>
+              Pre-filled from attendance finalization: set the correct punch-out time, check the status, then save.
+            </div>
+          ) : null}
           <form onSubmit={saveOverride} className="two-col" style={{ marginTop: 12 }}>
             <select
               className="input"

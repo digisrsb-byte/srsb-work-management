@@ -19,7 +19,19 @@ import {
   salaryResultToStoredComponents,
   COMPANY_ADDRESS_DEFAULT
 } from '../services/salaryCalculationService.js';
-import { maskAadhaar, maskAccountNumber, maskLastFour, maskPan } from '../utils/maskSensitive.js';
+import {
+  loadPayslipRowById,
+  loadPayslipRowForRunEmployee,
+  shapePayslip
+} from '../services/payslipDataService.js';
+import { isAttendancePeriodFinalized } from '../services/attendancePeriodService.js';
+import {
+  createDeliveriesForRun,
+  listRunDeliveries,
+  processRunDeliveriesInBackground,
+  requeueDelivery,
+  requeueFailedDeliveries
+} from '../services/payslipDeliveryService.js';
 import {
   createNotification,
   notifyRoleHolders
@@ -62,16 +74,28 @@ export const getEmployeeSalarySetup = asyncHandler(async (req, res) => {
     ? await getSalaryConfiguration(emps[0].company_id)
     : null;
 
+  const active = await getActiveSalaryStructure(employeeId);
+  const [bankRows] = await pool.query(
+    `SELECT uan_number FROM employee_bank_details WHERE employee_id = ? LIMIT 1`,
+    [employeeId]
+  );
+
   res.json({
     success: true,
     data: {
       employee: emps[0],
       structures: withComponents,
-      active: await getActiveSalaryStructure(employeeId),
-      salaryConfig: config
+      active,
+      salaryConfig: config,
+      statutory: {
+        pfApplicable: active ? Boolean(Number(active.pf_applicable ?? 1)) : true,
+        uanNumber: bankRows[0]?.uan_number || null
+      }
     }
   });
 });
+
+const UAN_PATTERN = /^\d{12}$/;
 
 export const upsertEmployeeSalarySetup = asyncHandler(async (req, res) => {
   await assertPermission(req.user, 'salary', 'edit');
@@ -86,8 +110,15 @@ export const upsertEmployeeSalarySetup = asyncHandler(async (req, res) => {
     enableBonus = false,
     enableAttendanceBonus = false,
     enableGratuity = false,
+    pfApplicable = true,
+    uanNumber,
     components: manualComponents
   } = req.body;
+
+  const uan = uanNumber == null ? undefined : String(uanNumber).replace(/\s/g, '');
+  if (uan && !UAN_PATTERN.test(uan)) {
+    throw new AppError('UAN must be exactly 12 digits.', 422, { fields: { uanNumber: 'Enter the 12-digit UAN.' } });
+  }
 
   const [emps] = await pool.query(
     `SELECT id, company_id FROM employees WHERE id = ? LIMIT 1`,
@@ -115,7 +146,8 @@ export const upsertEmployeeSalarySetup = asyncHandler(async (req, res) => {
     overrides: {
       enableBonus: Boolean(enableBonus),
       enableAttendanceBonus: Boolean(enableAttendanceBonus),
-      enableGratuity: Boolean(enableGratuity)
+      enableGratuity: Boolean(enableGratuity),
+      pfApplicable: Boolean(pfApplicable)
     }
   });
 
@@ -131,15 +163,8 @@ export const upsertEmployeeSalarySetup = asyncHandler(async (req, res) => {
   try {
     await connection.beginTransaction();
 
-    if (status === 'ACTIVE') {
-      await connection.query(
-        `UPDATE employee_salary_structures
-         SET status = 'INACTIVE'
-         WHERE employee_id = ? AND status = 'ACTIVE'`,
-        [employeeId]
-      );
-    }
-
+    // Earlier ACTIVE structures stay ACTIVE: payroll picks the one with the latest
+    // effective_date on or before the month, so past months keep their own salary.
     const [existing] = await connection.query(
       `SELECT id FROM employee_salary_structures
        WHERE employee_id = ? AND effective_date = ?
@@ -153,7 +178,7 @@ export const upsertEmployeeSalarySetup = asyncHandler(async (req, res) => {
       await connection.query(
         `UPDATE employee_salary_structures
          SET company_id = ?, location = ?, ctc = ?, status = ?, notes = ?,
-             enable_bonus = ?, enable_attendance_bonus = ?, enable_gratuity = ?,
+             enable_bonus = ?, enable_attendance_bonus = ?, enable_gratuity = ?, pf_applicable = ?,
              calculation_snapshot = ?, updated_by = ?
          WHERE id = ?`,
         [
@@ -165,6 +190,7 @@ export const upsertEmployeeSalarySetup = asyncHandler(async (req, res) => {
           enableBonus ? 1 : 0,
           enableAttendanceBonus ? 1 : 0,
           enableGratuity ? 1 : 0,
+          pfApplicable ? 1 : 0,
           JSON.stringify(calc),
           req.user.id,
           structureId
@@ -178,9 +204,9 @@ export const upsertEmployeeSalarySetup = asyncHandler(async (req, res) => {
       const [result] = await connection.query(
         `INSERT INTO employee_salary_structures (
            employee_id, company_id, location, ctc, effective_date, status, notes,
-           enable_bonus, enable_attendance_bonus, enable_gratuity, calculation_snapshot,
+           enable_bonus, enable_attendance_bonus, enable_gratuity, pf_applicable, calculation_snapshot,
            created_by, updated_by
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           employeeId,
           resolvedCompanyId,
@@ -192,6 +218,7 @@ export const upsertEmployeeSalarySetup = asyncHandler(async (req, res) => {
           enableBonus ? 1 : 0,
           enableAttendanceBonus ? 1 : 0,
           enableGratuity ? 1 : 0,
+          pfApplicable ? 1 : 0,
           JSON.stringify(calc),
           req.user.id,
           req.user.id
@@ -221,6 +248,19 @@ export const upsertEmployeeSalarySetup = asyncHandler(async (req, res) => {
       );
     }
 
+    if (uan) {
+      await connection.query(
+        `INSERT INTO employee_bank_details (employee_id, uan_number) VALUES (?, ?) AS incoming
+         ON DUPLICATE KEY UPDATE uan_number = incoming.uan_number`,
+        [employeeId, uan]
+      );
+    } else if (uan === '') {
+      await connection.query(
+        `UPDATE employee_bank_details SET uan_number = NULL WHERE employee_id = ?`,
+        [employeeId]
+      );
+    }
+
     await connection.commit();
 
     await writeAuditLog({
@@ -228,7 +268,17 @@ export const upsertEmployeeSalarySetup = asyncHandler(async (req, res) => {
       action: 'SALARY_SETUP_SAVED',
       entityType: 'employee_salary_structures',
       entityId: structureId,
-      newValues: { employeeId, ctc, effectiveDate, status, enableBonus, enableAttendanceBonus, enableGratuity },
+      newValues: {
+        employeeId,
+        ctc,
+        effectiveDate,
+        status,
+        enableBonus,
+        enableAttendanceBonus,
+        enableGratuity,
+        pfApplicable: Boolean(pfApplicable),
+        uanChanged: uan !== undefined
+      },
       ipAddress: req.ip
     });
 
@@ -256,6 +306,7 @@ export const previewSalaryCalculation = asyncHandler(async (req, res) => {
     enableBonus = false,
     enableAttendanceBonus = false,
     enableGratuity = false,
+    pfApplicable = true,
     configOverrides = null
   } = req.body;
 
@@ -311,7 +362,8 @@ export const previewSalaryCalculation = asyncHandler(async (req, res) => {
         overrides: {
           enableBonus: Boolean(enableBonus),
           enableAttendanceBonus: Boolean(enableAttendanceBonus),
-          enableGratuity: Boolean(enableGratuity)
+          enableGratuity: Boolean(enableGratuity),
+          pfApplicable: Boolean(pfApplicable)
         }
       });
       return res.json({ success: true, data: calculation });
@@ -326,7 +378,8 @@ export const previewSalaryCalculation = asyncHandler(async (req, res) => {
       overrides: {
         enableBonus: Boolean(enableBonus),
         enableAttendanceBonus: Boolean(enableAttendanceBonus),
-        enableGratuity: Boolean(enableGratuity)
+        enableGratuity: Boolean(enableGratuity),
+        pfApplicable: Boolean(pfApplicable)
       }
     });
     return res.json({ success: true, data: calculation });
@@ -598,17 +651,16 @@ export const updateSalaryConfig = asyncHandler(async (req, res) => {
 });
 
 export const listScopedPayslips = asyncHandler(async (req, res) => {
-  // Super Admin must not use this Employee Payslips listing page
-  if (req.user.role === 'SUPER_ADMIN') {
-    throw new AppError('Employee Payslips page is not available for Super Admin.', 403);
-  }
-  if (!['ADMIN', 'HR', 'MANAGER'].includes(req.user.role)) {
+  if (!['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'].includes(req.user.role)) {
     throw new AppError('Not authorized to list employee payslips.', 403);
   }
 
-  const companyIds = await getCompanyIdsForUser(req.user);
+  const companyId = req.query.companyId ? Number(req.query.companyId) : null;
+  if (companyId) await assertCompanyAccess(req.user, companyId);
+  const companyIds = companyId ? [companyId] : await getCompanyIdsForUser(req.user);
   if (!companyIds.length) return res.json({ success: true, data: [] });
 
+  const runId = req.query.runId ? Number(req.query.runId) : null;
   const employeeId = req.query.employeeId ? Number(req.query.employeeId) : null;
   const year = req.query.year ? Number(req.query.year) : null;
   const month = req.query.month ? Number(req.query.month) : null;
@@ -631,16 +683,27 @@ export const listScopedPayslips = asyncHandler(async (req, res) => {
       e.id AS employee_pk,
       e.employee_id AS emp_code,
       e.full_name,
-      d.name AS department
+      e.email,
+      d.name AS department,
+      pr.run_id,
+      ped.id AS delivery_id,
+      ped.status AS email_status,
+      ped.sent_at AS email_sent_at,
+      ped.last_error AS email_error
     FROM payslip_records pr
     INNER JOIN payroll_runs run ON run.id = pr.run_id
     INNER JOIN payroll_run_items pri ON pri.id = pr.run_item_id
     INNER JOIN employees e ON e.id = pr.employee_id
     LEFT JOIN departments d ON d.id = e.department_id
+    LEFT JOIN payslip_email_deliveries ped ON ped.payslip_id = pr.id
     WHERE run.company_id IN (?)
   `;
   const params = [companyIds];
 
+  if (runId) {
+    sql += ' AND pr.run_id = ?';
+    params.push(runId);
+  }
   if (employeeId) {
     sql += ' AND pr.employee_id = ?';
     params.push(employeeId);
@@ -741,10 +804,25 @@ export const getPayrollRun = asyncHandler(async (req, res) => {
        e.employee_id AS emp_code,
        e.joining_date,
        e.designation,
-       d.name AS department_name
+       e.email,
+       d.name AS department_name,
+       ess.pf_applicable,
+       EXISTS (
+         SELECT 1 FROM employee_bank_details ub
+         WHERE ub.employee_id = e.id AND ub.uan_number IS NOT NULL AND ub.uan_number <> ''
+       ) AS has_uan,
+       ps.id AS payslip_id,
+       ps.payslip_number,
+       ped.status AS email_status,
+       ped.sent_at AS email_sent_at,
+       ped.last_error AS email_error
      FROM payroll_run_items pri
      INNER JOIN employees e ON e.id = pri.employee_id
      LEFT JOIN departments d ON d.id = e.department_id
+     LEFT JOIN employee_salary_structures ess ON ess.id = pri.structure_id
+     LEFT JOIN payslip_records ps
+       ON ps.id = (SELECT MAX(p2.id) FROM payslip_records p2 WHERE p2.run_item_id = pri.id)
+     LEFT JOIN payslip_email_deliveries ped ON ped.payslip_id = ps.id
      WHERE pri.run_id = ?
      ORDER BY e.full_name`,
     [runId]
@@ -807,6 +885,64 @@ export const getPayrollRun = asyncHandler(async (req, res) => {
     });
   }
 
+  const attendanceFinalized = await isAttendancePeriodFinalized(
+    run.company_id,
+    run.period_year,
+    run.period_month
+  );
+  if (!attendanceFinalized && ['DRAFT', 'SUBMITTED'].includes(run.status)) {
+    issues.unshift({
+      severity: 'BLOCKING',
+      code: 'ATTENDANCE_NOT_FINALIZED',
+      employeeId: null,
+      empCode: 'Attendance',
+      message: `Attendance for ${String(run.period_month).padStart(2, '0')}/${run.period_year} is not finalized. Finalize it before approving payroll.`,
+      action: 'finalize_attendance'
+    });
+  }
+  for (const item of items) {
+    if (!item.email) {
+      issues.push({
+        severity: 'WARNING',
+        code: 'MISSING_EMAIL',
+        employeeId: item.employee_id,
+        empCode: item.emp_code,
+        fullName: item.full_name,
+        message: 'No email address — the payslip cannot be emailed on release.'
+      });
+    }
+    if (item.structure_id && Number(item.pf_applicable ?? 1) && !Number(item.has_uan)) {
+      issues.push({
+        severity: 'WARNING',
+        code: 'MISSING_UAN',
+        employeeId: item.employee_id,
+        empCode: item.emp_code,
+        fullName: item.full_name,
+        message: 'PF applies but no UAN is recorded — the payslip will show UAN as not available.',
+        action: 'configure_salary'
+      });
+    }
+  }
+
+  const eligibleItems = items.map((item) => {
+    const eligible =
+      Boolean(item.structure_id) && item.net_pay != null && item.gross_earnings != null;
+    return {
+      ...item,
+      pf_applicable: item.pf_applicable == null ? null : Boolean(Number(item.pf_applicable)),
+      has_uan: Boolean(Number(item.has_uan)),
+      eligibility: eligible ? 'ELIGIBLE' : 'BLOCKED'
+    };
+  });
+
+  const deliveryCounts = eligibleItems.reduce(
+    (acc, item) => {
+      if (item.email_status) acc[item.email_status] = (acc[item.email_status] || 0) + 1;
+      return acc;
+    },
+    {}
+  );
+
   const totals = {
     employees: items.length,
     totalGross: items.reduce((s, i) => s + Number(i.gross_earnings || 0), 0),
@@ -821,12 +957,24 @@ export const getPayrollRun = asyncHandler(async (req, res) => {
     ),
     totalNet: items.reduce((s, i) => s + Number(i.net_pay || 0), 0),
     blockingIssues: issues.filter((i) => i.severity === 'BLOCKING').length,
-    warningIssues: issues.filter((i) => i.severity === 'WARNING').length
+    warningIssues: issues.filter((i) => i.severity === 'WARNING').length,
+    eligible: eligibleItems.filter((i) => i.eligibility === 'ELIGIBLE').length,
+    blocked: eligibleItems.filter((i) => i.eligibility === 'BLOCKED').length,
+    missingEmail: eligibleItems.filter((i) => !i.email).length,
+    payslips: eligibleItems.filter((i) => i.payslip_id).length
   };
 
   res.json({
     success: true,
-    data: { run, items, adjustments, issues, totals }
+    data: {
+      run,
+      items: eligibleItems,
+      adjustments,
+      issues,
+      totals,
+      attendance: { finalized: attendanceFinalized },
+      deliveries: deliveryCounts
+    }
   });
 });
 
@@ -1020,6 +1168,15 @@ async function transitionPayroll(req, res, nextStatus, action, dateField, byFiel
         400
       );
     }
+    if (
+      nextStatus === 'APPROVED' &&
+      !(await isAttendancePeriodFinalized(run.company_id, run.period_year, run.period_month))
+    ) {
+      throw new AppError(
+        `Cannot approve payroll: attendance for ${String(run.period_month).padStart(2, '0')}/${run.period_year} is not finalized. Finalize attendance, recalculate, then approve.`,
+        400
+      );
+    }
   }
 
   if (nextStatus === 'DRAFT') {
@@ -1098,15 +1255,18 @@ export const markPayrollPaid = asyncHandler(async (req, res) => {
   await assertCompanyAccess(req.user, run.company_id);
 
   if (run.status !== 'LOCKED') {
-    throw new AppError('Only locked payroll can be marked paid.', 400);
+    throw new AppError('Only locked payroll can be released.', 400);
   }
 
-  await pool.query(
+  const [released] = await pool.query(
     `UPDATE payroll_runs
      SET status = 'PAID', paid_by = ?, paid_at = NOW()
-     WHERE id = ?`,
+     WHERE id = ? AND status = 'LOCKED'`,
     [req.user.id, runId]
   );
+  if (!released.affectedRows) {
+    throw new AppError('This payroll run was already released.', 409);
+  }
 
   const [items] = await pool.query(
     `SELECT id, employee_id FROM payroll_run_items WHERE run_id = ?`,
@@ -1133,20 +1293,90 @@ export const markPayrollPaid = asyncHandler(async (req, res) => {
     });
   }
 
+  await createDeliveriesForRun(runId);
+  const delivery = await listRunDeliveries(runId);
+  processRunDeliveriesInBackground(runId);
+
   await writeAuditLog({
     employeeId: req.user.id,
     action: 'PAYROLL_PAID',
     entityType: 'payroll_runs',
     entityId: runId,
     oldValues: { status: 'LOCKED' },
-    newValues: { status: 'PAID' },
+    newValues: {
+      status: 'PAID',
+      payslips: items.length,
+      emailsQueued: delivery.counts.PENDING,
+      emailsSkipped: delivery.counts.SKIPPED
+    },
     ipAddress: req.ip
   });
 
   res.json({
     success: true,
-    message: 'Payroll marked paid and payslips generated.'
+    message: `Payroll released. ${items.length} payslip(s) generated; ${delivery.counts.PENDING} email(s) are being sent.`,
+    data: { payslips: items.length, delivery: delivery.counts }
   });
+});
+
+async function loadRunForDelivery(req, runId) {
+  const [runs] = await pool.query(`SELECT * FROM payroll_runs WHERE id = ? LIMIT 1`, [runId]);
+  if (!runs.length) throw new AppError('Payroll run not found.', 404);
+  await assertCompanyAccess(req.user, runs[0].company_id);
+  return runs[0];
+}
+
+export const getRunEmailDeliveries = asyncHandler(async (req, res) => {
+  await assertPermission(req.user, 'payroll', 'view');
+  const runId = Number(req.params.runId);
+  await loadRunForDelivery(req, runId);
+  res.json({ success: true, data: await listRunDeliveries(runId) });
+});
+
+export const retryRunEmailDeliveries = asyncHandler(async (req, res) => {
+  await assertPermission(req.user, 'payroll', 'approve');
+  const runId = Number(req.params.runId);
+  const run = await loadRunForDelivery(req, runId);
+  if (run.status !== 'PAID') throw new AppError('Payslip emails are sent only after release.', 400);
+  const requeued = await requeueFailedDeliveries(runId);
+  processRunDeliveriesInBackground(runId);
+  await writeAuditLog({
+    employeeId: req.user.id,
+    action: 'PAYSLIP_EMAIL_RETRY',
+    entityType: 'payroll_runs',
+    entityId: runId,
+    newValues: { requeued },
+    ipAddress: req.ip
+  });
+  res.json({
+    success: true,
+    message: requeued ? `Retrying ${requeued} payslip email(s).` : 'No failed payslip emails to retry.',
+    data: await listRunDeliveries(runId)
+  });
+});
+
+export const resendPayslipEmail = asyncHandler(async (req, res) => {
+  await assertPermission(req.user, 'payroll', 'edit');
+  const runId = Number(req.params.runId);
+  const deliveryId = Number(req.params.deliveryId);
+  await loadRunForDelivery(req, runId);
+  const [rows] = await pool.query(
+    `SELECT id FROM payslip_email_deliveries WHERE id = ? AND run_id = ? LIMIT 1`,
+    [deliveryId, runId]
+  );
+  if (!rows.length) throw new AppError('Email delivery not found for this payroll run.', 404);
+  if (!(await requeueDelivery(deliveryId))) {
+    throw new AppError('This payslip email is being sent right now. Try again in a moment.', 409);
+  }
+  processRunDeliveriesInBackground(runId);
+  await writeAuditLog({
+    employeeId: req.user.id,
+    action: 'PAYSLIP_EMAIL_RESENT',
+    entityType: 'payslip_email_deliveries',
+    entityId: deliveryId,
+    ipAddress: req.ip
+  });
+  res.json({ success: true, message: 'Payslip email queued for resend.' });
 });
 
 export const reopenPayrollRun = asyncHandler(async (req, res) => {
@@ -1170,7 +1400,7 @@ export const listMyPayslips = asyncHandler(async (req, res) => {
      FROM payslip_records pr
      INNER JOIN payroll_runs run ON run.id = pr.run_id
      INNER JOIN payroll_run_items pri ON pri.id = pr.run_item_id
-     WHERE pr.employee_id = ?
+     WHERE pr.employee_id = ? AND run.status = 'PAID'
      ORDER BY run.period_year DESC, run.period_month DESC`,
     [req.user.id]
   );
@@ -1179,76 +1409,8 @@ export const listMyPayslips = asyncHandler(async (req, res) => {
 
 export const getPayslip = asyncHandler(async (req, res) => {
   const payslipId = Number(req.params.payslipId);
-  const [rows] = await pool.query(
-    `SELECT
-       pr.*,
-       run.period_year,
-       run.period_month,
-       run.company_id,
-       run.status AS payroll_status,
-       run.working_days,
-       run.paid_at,
-       pri.payable_days,
-       pri.ctc,
-       pri.gross_earnings,
-       pri.pf_employee,
-       pri.pf_employer,
-       pri.esi_employee,
-       pri.esi_employer,
-       pri.professional_tax,
-       pri.other_deductions,
-       pri.net_pay,
-       pri.calculation_notes,
-       pri.component_snapshot,
-       e.full_name,
-       e.employee_id AS emp_code,
-       e.email,
-       e.designation,
-       e.joining_date,
-       e.work_location,
-       d.name AS department,
-       c.name AS company_name,
-       c.address AS company_registered_address,
-       c.official_email AS company_email,
-       c.contact_phone AS company_phone,
-       c.website AS company_website,
-       sc.company_address,
-       bank.bank_name,
-       bank.account_number,
-       bank.account_number_last4,
-       bank.ifsc_code,
-       bank.account_holder_name,
-       bank.pan_number,
-       (SELECT doc.document_number
-          FROM employee_documents doc
-         WHERE doc.employee_id = e.id AND doc.document_type = 'AADHAAR'
-         ORDER BY doc.uploaded_at DESC, doc.id DESC
-         LIMIT 1) AS aadhaar_number,
-       addr.address_line_1,
-       addr.address_line_2,
-       addr.city,
-       addr.state,
-       addr.postal_code
-     FROM payslip_records pr
-     INNER JOIN payroll_runs run ON run.id = pr.run_id
-     INNER JOIN payroll_run_items pri ON pri.id = pr.run_item_id
-     INNER JOIN employees e ON e.id = pr.employee_id
-     INNER JOIN companies c ON c.id = run.company_id
-     LEFT JOIN departments d ON d.id = e.department_id
-     LEFT JOIN employee_bank_details bank
-       ON bank.employee_id = e.id
-      AND (bank.source = 'LEGACY' OR bank.verified_at IS NOT NULL)
-     LEFT JOIN employee_addresses addr
-       ON addr.employee_id = e.id AND addr.address_type = 'CURRENT'
-     LEFT JOIN salary_configurations sc
-       ON sc.company_id = run.company_id AND sc.is_active = 1
-     WHERE pr.id = ?
-     LIMIT 1`,
-    [payslipId]
-  );
-
-  if (!rows.length) throw new AppError('Payslip not found.', 404);
-  const payslip = rows[0];
+  const payslip = await loadPayslipRowById(payslipId);
+  if (!payslip) throw new AppError('Payslip not found.', 404);
 
   const isOwner = Number(payslip.employee_id) === Number(req.user.id);
   const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'HR', 'MANAGER'].includes(req.user.role);
@@ -1256,6 +1418,10 @@ export const getPayslip = asyncHandler(async (req, res) => {
     throw new AppError('You cannot view this payslip.', 403);
   }
   if (isAdmin && !isOwner) await assertCompanyAccess(req.user, payslip.company_id);
+  // Employees only see payslips once payroll has been released.
+  if (!isAdmin && payslip.payroll_status !== 'PAID') {
+    throw new AppError('Payslip not found.', 404);
+  }
 
   // Super Admin may open by ID for ops, but dedicated Employee Payslips list is blocked elsewhere
   if (req.query.download === '1') {
@@ -1269,58 +1435,34 @@ export const getPayslip = asyncHandler(async (req, res) => {
     });
   }
 
-  let snapshot = payslip.component_snapshot;
-  if (typeof snapshot === 'string') {
-    try {
-      snapshot = JSON.parse(snapshot);
-    } catch {
-      snapshot = null;
-    }
+  res.json({ success: true, data: shapePayslip(payslip) });
+});
+
+/**
+ * One employee's payslip inside a payroll run, identified by run + employee so the review
+ * screen can preview or download it before release as well as after.
+ */
+export const getRunEmployeePayslip = asyncHandler(async (req, res) => {
+  await assertPermission(req.user, 'payroll', 'view');
+  const runId = Number(req.params.runId);
+  const employeeId = Number(req.params.employeeId);
+  const row = await loadPayslipRowForRunEmployee(runId, employeeId);
+  if (!row) throw new AppError('This employee is not part of the payroll run.', 404);
+  await assertCompanyAccess(req.user, row.company_id);
+  if (row.net_pay == null) {
+    throw new AppError('Payroll for this employee is not calculated yet. Resolve the payroll issues first.', 409);
   }
 
-  // Onboarding-verified rows keep only the last four digits in clear; legacy rows are masked here.
-  const maskedAccount = payslip.account_number_last4
-    ? maskLastFour(payslip.account_number_last4)
-    : maskAccountNumber(payslip.account_number);
-  const maskedPan = maskPan(payslip.pan_number);
-  const maskedAadhaar = maskAadhaar(payslip.aadhaar_number);
-  delete payslip.account_number;
-  delete payslip.account_number_last4;
-  delete payslip.pan_number;
-  delete payslip.aadhaar_number;
-  const companyRegisteredAddress = payslip.company_registered_address;
-  delete payslip.company_registered_address;
-  const isPaid = payslip.payroll_status === 'PAID';
+  if (req.query.download === '1') {
+    await writeAuditLog({
+      employeeId: req.user.id,
+      action: 'PAYSLIP_DOWNLOADED',
+      entityType: row.id ? 'payslip_records' : 'payroll_run_items',
+      entityId: row.id || row.run_item_id,
+      newValues: { role: req.user.role, runId, employeeId, preview: !row.id },
+      ipAddress: req.ip
+    });
+  }
 
-  const employeeAddress = [
-    payslip.address_line_1,
-    payslip.address_line_2,
-    payslip.city,
-    payslip.state,
-    payslip.postal_code
-  ]
-    .filter(Boolean)
-    .join(', ');
-
-  res.json({
-    success: true,
-    data: {
-      ...payslip,
-      employee_address: employeeAddress || null,
-      component_snapshot: snapshot,
-      bank_account_masked: maskedAccount,
-      pan_masked: maskedPan,
-      aadhaar_masked: maskedAadhaar,
-      company_address:
-        payslip.company_address ||
-        companyRegisteredAddress ||
-        snapshot?.configSnapshot?.company_address ||
-        COMPANY_ADDRESS_DEFAULT,
-      payment_method: maskedAccount ? 'Bank Transfer' : 'Not configured',
-      payment_status: isPaid ? 'PAID' : 'PENDING',
-      payment_date: isPaid ? payslip.paid_at : null,
-      lop_days: snapshot?.lopDays ?? null,
-      breakdown: snapshot
-    }
-  });
+  res.json({ success: true, data: shapePayslip(row) });
 });

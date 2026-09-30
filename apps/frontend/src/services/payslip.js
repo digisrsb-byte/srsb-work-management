@@ -1,4 +1,6 @@
-import jsPDF from 'jspdf';
+// Also imported by the backend (Node) to attach payslip PDFs to release emails,
+// so this module must not touch browser globals outside loadCompanyLogoDataUrl.
+import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { COMPANY_LOGO_ASPECT, COMPANY_LOGO_URL } from '../config/branding.js';
 
@@ -302,7 +304,7 @@ export function buildPayslipDocument(payslip, { companyAddressDefault = COMPANY_
     periodLabel,
     meta: [
       ['Pay Period', periodRange || periodLabel],
-      ['Payslip No.', textOr(payslip.payslip_number, '—')],
+      ['Payslip No.', textOr(payslip.payslip_number, payslip.is_preview ? 'Preview — not released' : '—')],
       ['Payroll Run ID', payslip.run_id ? `#${payslip.run_id}` : '—'],
       ['Generated On', formatPayslipDate(payslip.generated_at) || NOT_RECORDED],
       ['Payment Date', paymentDate || NOT_RECORDED]
@@ -317,7 +319,13 @@ export function buildPayslipDocument(payslip, { companyAddressDefault = COMPANY_
     ['Work Location', textOr(payslip.work_location)],
     ['Date of Joining', formatPayslipDate(payslip.joining_date) || NOT_PROVIDED],
     ['PAN', maskedOr(payslip.pan_masked)],
-    ['Aadhaar', maskedOr(payslip.aadhaar_masked)]
+    ['Aadhaar', maskedOr(payslip.aadhaar_masked)],
+    ...(payslip.pf_applicable === false
+      ? [['PF', 'Not applicable']]
+      : [
+          ['UAN', maskedOr(payslip.uan_masked)],
+          ['PF Wage', payslip.pf_wage != null ? `INR ${formatPayslipAmount(payslip.pf_wage)}` : NOT_RECORDED]
+        ])
   ]);
 
   const paidDays = formatDays(payslip.payable_days) ?? NOT_RECORDED;
@@ -448,18 +456,26 @@ const PDF_MUTED = [100, 116, 139];
 const PDF_LINE = [203, 213, 225];
 const PDF_SOFT = [241, 245, 249];
 
+/** "EMP00125_September_2026_Payslip.pdf" */
+export function payslipFileName(payslip) {
+  const code = String(payslip?.emp_code || 'Employee').replace(/[^A-Za-z0-9_-]/g, '');
+  const month = Number(payslip?.period_month);
+  const year = Number(payslip?.period_year);
+  const period = month >= 1 && month <= 12 && year > 0 ? `${MONTH_NAMES[month - 1]}_${year}` : 'Payslip';
+  return `${code}_${period}_Payslip.pdf`;
+}
+
 /**
- * Single payslip PDF layout shared by the admin and employee payslip pages.
- * Renders the same sections as the on-screen PayslipCard.
+ * Single payslip PDF layout shared by the admin and employee payslip pages and the
+ * release email. Renders the same sections as the on-screen PayslipCard and returns
+ * the jsPDF document; `logo` is a PNG data URL or null.
  */
-export async function generatePayslipPdf(
+export function renderPayslipPdf(
   payslipData,
-  { companyAddressDefault = COMPANY_ADDRESS_DEFAULT } = {}
+  { logo = null, companyAddressDefault = COMPANY_ADDRESS_DEFAULT } = {}
 ) {
-  if (!payslipData) return;
   const model = buildPayslipDocument(payslipData, { companyAddressDefault });
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-  const logo = await loadCompanyLogoDataUrl();
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const left = 14;
@@ -700,5 +716,15 @@ export async function generatePayslipPdf(
     doc.text(`Page ${page} of ${totalPages}`, right, pageHeight - 8.5, { align: 'right' });
   }
 
-  doc.save(`${payslipData.payslip_number || 'payslip'}.pdf`);
+  return doc;
+}
+
+export async function generatePayslipPdf(
+  payslipData,
+  { companyAddressDefault = COMPANY_ADDRESS_DEFAULT } = {}
+) {
+  if (!payslipData) return;
+  const logo = await loadCompanyLogoDataUrl();
+  const doc = renderPayslipPdf(payslipData, { logo, companyAddressDefault });
+  doc.save(payslipFileName(payslipData));
 }

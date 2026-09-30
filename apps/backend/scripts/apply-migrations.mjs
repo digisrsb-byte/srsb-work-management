@@ -41,7 +41,8 @@ const files = [
   path.join(backendRoot, 'migrations', '014_employee_account_invitations.sql'),
   path.join(backendRoot, 'migrations', '015_document_withdrawal.sql'),
   path.join(backendRoot, 'migrations', '016_document_draft_uploads.sql'),
-  path.join(backendRoot, 'migrations', '017_onboarding_bank_details.sql')
+  path.join(backendRoot, 'migrations', '017_onboarding_bank_details.sql'),
+  path.join(backendRoot, 'migrations', '018_payroll_release_workflow.sql')
 ];
 
 const conn = await mysql.createConnection({
